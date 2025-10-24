@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@sparticuz/chromium": "^141.0.0",
     "@tailwindcss/postcss": "^4.1.14",
     "apify": "^3.5.0",
     "axios": "^1.12.2",

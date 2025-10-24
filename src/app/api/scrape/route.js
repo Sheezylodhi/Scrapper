@@ -1,6 +1,6 @@
-// src/app/api/scrape/route.js
-export const runtime = "nodejs";   // important: allow puppeteer in Node runtime
-export const maxDuration = 300;    // seconds (5 minutes) - increase if you need longer
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 
 import { NextResponse } from "next/server";
 import { scrapeEbayCars } from "@/lib/scraper";
@@ -9,21 +9,10 @@ import Listing from "@/lib/models/Listing";
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const { searchUrl, keyword, fromDate, toDate, siteName } = body;
-
-    if (!searchUrl) return NextResponse.json({ error: "searchUrl required" }, { status: 400 });
-
-    console.log("🌐 Scrape request received:", { searchUrl, keyword, fromDate, toDate, siteName });
+    const { searchUrl, keyword, fromDate, toDate, siteName } = await req.json();
 
     await connectToDatabase();
-
-    const results = await scrapeEbayCars(searchUrl, 50, keyword || "", fromDate, toDate, siteName || "eBay");
-    console.log(`🧾 Scraped ${results.length} listings`);
-
-    if (!results || results.length === 0) {
-      return NextResponse.json({ success: true, count: 0, results: [] });
-    }
+    const results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
 
     const now = new Date();
     const expireAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -32,16 +21,15 @@ export async function POST(req) {
 
     await Listing.deleteMany({ expiresAt: { $lte: new Date() } });
 
-    const ops = docs.map(d =>
-      Listing.updateOne({ productLink: d.productLink }, { $set: d }, { upsert: true })
+    await Promise.all(
+      docs.map((d) =>
+        Listing.updateOne({ productLink: d.productLink }, { $set: d }, { upsert: true })
+      )
     );
-    await Promise.all(ops);
-
-    console.log(`💾 ${docs.length} listings saved (expires in 48h)`);
 
     return NextResponse.json({ success: true, count: docs.length, results: docs });
   } catch (err) {
-    console.error("❌ Scraper Route Error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    console.error("❌ Error:", err);
+    return NextResponse.json({ error: "Server Error" }, { status: 500 });
   }
 }
