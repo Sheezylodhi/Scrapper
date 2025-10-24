@@ -1,9 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   webpack: (config) => {
-    config.externals.push({
-      "clone-deep": "commonjs clone-deep",
+    // Ignore .map files inside chrome-aws-lambda
+    config.module.rules.push({
+      test: /\.map$/,
+      use: 'ignore-loader'
     });
+
     return config;
   },
 };
