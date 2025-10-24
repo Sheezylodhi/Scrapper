@@ -1,3 +1,7 @@
+// src/app/api/scrape/route.js
+export const runtime = "nodejs";   // important: allow puppeteer in Node runtime
+export const maxDuration = 300;    // seconds (5 minutes) - increase if you need longer
+
 import { NextResponse } from "next/server";
 import { scrapeEbayCars } from "@/lib/scraper";
 import { connectToDatabase } from "@/lib/dbConnect";
@@ -38,6 +42,6 @@ export async function POST(req) {
     return NextResponse.json({ success: true, count: docs.length, results: docs });
   } catch (err) {
     console.error("❌ Scraper Route Error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

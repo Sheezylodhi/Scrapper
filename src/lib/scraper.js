@@ -1,6 +1,6 @@
 // src/lib/scraper.js
 import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core"; // puppeteer-core instead of puppeteer
+import puppeteer from "puppeteer-core";
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,21 +35,19 @@ export async function scrapeEbayCars(
     const isProd = process.env.NODE_ENV === "production";
 
     if (isProd) {
-      // In production (Vercel), use chrome-aws-lambda executable and recommended args
+      // Production: chrome-aws-lambda provides a runtime chromium binary on Vercel-like envs
       const execPath = await chromium.executablePath;
       if (!execPath) {
         throw new Error("chrome-aws-lambda failed to provide executablePath");
       }
+      console.log("🌐 Launching chromium in production, execPath:", execPath);
       return await puppeteer.launch({
-        args: chromium.args.concat(["--disable-gpu", "--single-process"]),
-        defaultViewport: chromium.defaultViewport,
+        args: chromium.args,        // recommended args
         executablePath: execPath,
         headless: true,
-        ignoreHTTPSErrors: true,
       });
     } else {
-      // Local dev: try to use system Chrome
-      // You can change this path to your local chrome binary if needed
+      // Local dev: try to use local Chrome/Chromium
       const localExecutable =
         process.env.CHROME_PATH ||
         (process.platform === "win32"
@@ -57,6 +55,7 @@ export async function scrapeEbayCars(
           : process.platform === "darwin"
           ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           : "/usr/bin/google-chrome");
+      console.log("🌐 Launching local chrome, path:", localExecutable);
       return await puppeteer.launch({
         executablePath: localExecutable,
         headless: true,
@@ -101,7 +100,9 @@ export async function scrapeEbayCars(
 
       try {
         await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
-      } catch (e) {}
+      } catch (e) {
+        console.log("⚠️ listing selector not found on this page (maybe no results)");
+      }
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes.map((n) => ({
@@ -158,7 +159,7 @@ export async function scrapeEbayCars(
       currentPage++;
       await delay(300);
     } catch (err) {
-      console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
+      console.warn(`⚠️ Page Error (page ${currentPage}): ${err?.message || err}`);
       currentPage++;
       continue;
     }
@@ -167,7 +168,7 @@ export async function scrapeEbayCars(
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
   const detailed = [];
-  const concurrency = 6;
+  const concurrency = 3; // reduced to be memory-friendly on serverless
   const retryLimit = 2;
 
   async function fetchDetailWithRetry(item, attempt = 1) {
@@ -197,7 +198,9 @@ export async function scrapeEbayCars(
           await delay(150);
           descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
           await dpage.close();
-        } catch (e) {}
+        } catch (e) {
+          console.warn("⚠️ iframe description fetch failed:", e?.message || e);
+        }
       }
 
       if (!descriptionText) {
@@ -238,7 +241,9 @@ export async function scrapeEbayCars(
           sellerProfileEmail = extractFirstMatch(sellerText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
 
           await pPage.close();
-        } catch (err) {}
+        } catch (err) {
+          console.warn("⚠️ seller profile fetch failed:", err?.message || err);
+        }
       }
 
       const finalPhone = sellerProfilePhone || phone || null;
@@ -248,7 +253,7 @@ export async function scrapeEbayCars(
 
       return {
         ...item,
-        sellerName, // ✅ Fixed to always reflect product owner
+        sellerName,
         sellerProfile,
         sellerContact: finalPhone,
         sellerEmail: finalEmail,
@@ -256,10 +261,10 @@ export async function scrapeEbayCars(
         scrapedAt: new Date(),
       };
     } catch (err) {
-      if (pageDetail && !pageDetail.isClosed()) {
+      if (pageDetail && !pageDetail.isClosed && !pageDetail.isClosed()) {
         try { await pageDetail.close(); } catch {}
       }
-      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
+      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err?.message || err}`);
       if (attempt < retryLimit) {
         await delay(700 * attempt);
         return fetchDetailWithRetry(item, attempt + 1);
@@ -287,8 +292,8 @@ export async function scrapeEbayCars(
     await delay(500);
   }
 
-  await page.close();
-  await browser.close();
+  try { await page.close(); } catch {}
+  try { await browser.close(); } catch {}
 
   console.log(`\n✅ DONE → ${detailed.length} final listings`);
   return detailed;
