@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+
+/* VIP helpers for login/dashboard look */
+.bg-glass {
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(8px);
+}
+
+.border-soft {
+  border: 1px solid rgba(255,255,255,0.25);
+}
