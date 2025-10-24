@@ -1,5 +1,6 @@
 // src/lib/scraper.js
-import puppeteer from "puppeteer";
+import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer-core"; // puppeteer-core instead of puppeteer
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,10 +30,43 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  // ---------- Browser launch helper (Vercel / local friendly) ----------
+  async function launchBrowser() {
+    const isProd = process.env.NODE_ENV === "production";
+
+    if (isProd) {
+      // In production (Vercel), use chrome-aws-lambda executable and recommended args
+      const execPath = await chromium.executablePath;
+      if (!execPath) {
+        throw new Error("chrome-aws-lambda failed to provide executablePath");
+      }
+      return await puppeteer.launch({
+        args: chromium.args.concat(["--disable-gpu", "--single-process"]),
+        defaultViewport: chromium.defaultViewport,
+        executablePath: execPath,
+        headless: true,
+        ignoreHTTPSErrors: true,
+      });
+    } else {
+      // Local dev: try to use system Chrome
+      // You can change this path to your local chrome binary if needed
+      const localExecutable =
+        process.env.CHROME_PATH ||
+        (process.platform === "win32"
+          ? "C:/Program Files/Google/Chrome/Application/chrome.exe"
+          : process.platform === "darwin"
+          ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          : "/usr/bin/google-chrome");
+      return await puppeteer.launch({
+        executablePath: localExecutable,
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+    }
+  }
+  // --------------------------------------------------------------------
+
+  const browser = await launchBrowser();
 
   const page = await browser.newPage();
   await page.setUserAgent(
