@@ -1,6 +1,4 @@
-// src/lib/scraper.js
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,46 +24,15 @@ export async function scrapeEbayCars(
   const useDate = fromDate && toDate;
   const from = useDate ? new Date(fromDate) : null;
   const to = useDate ? new Date(toDate) : null;
+
   if (useDate && (isNaN(from) || isNaN(to))) throw new Error("Invalid date");
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  // ---------- Browser launch helper (Vercel / local friendly) ----------
-  async function launchBrowser() {
-    const isProd = process.env.NODE_ENV === "production";
-
-    if (isProd) {
-      // Production: chrome-aws-lambda provides a runtime chromium binary on Vercel-like envs
-      const execPath = await chromium.executablePath;
-      if (!execPath) {
-        throw new Error("chrome-aws-lambda failed to provide executablePath");
-      }
-      console.log("🌐 Launching chromium in production, execPath:", execPath);
-      return await puppeteer.launch({
-        args: chromium.args,        // recommended args
-        executablePath: execPath,
-        headless: true,
-      });
-    } else {
-      // Local dev: try to use local Chrome/Chromium
-      const localExecutable =
-        process.env.CHROME_PATH ||
-        (process.platform === "win32"
-          ? "C:/Program Files/Google/Chrome/Application/chrome.exe"
-          : process.platform === "darwin"
-          ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-          : "/usr/bin/google-chrome");
-      console.log("🌐 Launching local chrome, path:", localExecutable);
-      return await puppeteer.launch({
-        executablePath: localExecutable,
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      });
-    }
-  }
-  // --------------------------------------------------------------------
-
-  const browser = await launchBrowser();
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
 
   const page = await browser.newPage();
   await page.setUserAgent(
@@ -100,9 +67,7 @@ export async function scrapeEbayCars(
 
       try {
         await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
-      } catch (e) {
-        console.log("⚠️ listing selector not found on this page (maybe no results)");
-      }
+      } catch (e) {}
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes.map((n) => ({
@@ -113,14 +78,13 @@ export async function scrapeEbayCars(
             n.querySelector("a[href*='/itm/']")?.href ||
             "",
           price:
-            n.querySelector(".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price")?.innerText?.trim() ||
-            "",
+            n.querySelector(".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price")?.innerText?.trim() || "",
           image:
-            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")?.src ||
-            "",
+            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")?.src || "",
           postedDate:
-            n.querySelector(".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle")?.innerText?.trim() ||
-            "",
+            n.querySelector(
+              ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle"
+            )?.innerText?.trim() || "",
         }))
       );
 
@@ -142,7 +106,9 @@ export async function scrapeEbayCars(
           if (d > to) continue;
         }
 
-        if (useKeyword && (!card.title || !card.title.toLowerCase().includes(keyword.toLowerCase()))) continue;
+        if (useKeyword && (!card.title || !card.title.toLowerCase().includes(keyword.toLowerCase())))
+          continue;
+
         if (!card.link) continue;
 
         collected.push({
@@ -159,7 +125,7 @@ export async function scrapeEbayCars(
       currentPage++;
       await delay(300);
     } catch (err) {
-      console.warn(`⚠️ Page Error (page ${currentPage}): ${err?.message || err}`);
+      console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
       currentPage++;
       continue;
     }
@@ -168,7 +134,7 @@ export async function scrapeEbayCars(
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
   const detailed = [];
-  const concurrency = 3; // reduced to be memory-friendly on serverless
+  const concurrency = 6;
   const retryLimit = 2;
 
   async function fetchDetailWithRetry(item, attempt = 1) {
@@ -184,7 +150,10 @@ export async function scrapeEbayCars(
       await delay(200);
 
       let descriptionText = null;
-      const descIframeUrl = await pageDetail.$eval("iframe#desc_ifr, iframe[src*='desc']", (el) => el.src).catch(() => null);
+
+      const descIframeUrl = await pageDetail
+        .$eval("iframe#desc_ifr, iframe[src*='desc']", (el) => el.src)
+        .catch(() => null);
 
       if (descIframeUrl) {
         try {
@@ -193,33 +162,43 @@ export async function scrapeEbayCars(
           await dpage.setUserAgent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
           );
-          const iframeUrl = descIframeUrl.startsWith("http") ? descIframeUrl : new URL(descIframeUrl, item.productLink).toString();
+          const iframeUrl = descIframeUrl.startsWith("http")
+            ? descIframeUrl
+            : new URL(descIframeUrl, item.productLink).toString();
           await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
           await delay(150);
           descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
           await dpage.close();
-        } catch (e) {
-          console.warn("⚠️ iframe description fetch failed:", e?.message || e);
-        }
+        } catch (e) {}
       }
 
       if (!descriptionText) {
         descriptionText =
-          (await pageDetail.$$eval(
-            [
-              "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-            ].join(","), (nodes) => nodes.map((n) => n.innerText || "").join("\n")
-          ).catch(() => "")) || "";
+          (await pageDetail
+            .$$eval(
+              [
+                "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
+              ].join(","),
+              (nodes) => nodes.map((n) => n.innerText || "").join("\n")
+            )
+            .catch(() => "")) || "";
       }
 
-      const phone = extractFirstMatch(descriptionText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
-      const email = extractFirstMatch(descriptionText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
+      const phone =
+        extractFirstMatch(descriptionText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
+      const email =
+        extractFirstMatch(descriptionText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
 
-      // ---- FIXED SELLER NAME: Always from seller profile ----
       const { sellerName, sellerProfile } = await pageDetail.evaluate(() => {
-        const profileLink = document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")?.href || null;
-        const name = document.querySelector(".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb")?.innerText?.trim() ||
-                     document.querySelector(".ux-seller-section__sellerName, .seller-info a")?.innerText?.trim() || null;
+        const profileLink =
+          document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")
+            ?.href || null;
+        const name =
+          document.querySelector(
+            ".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb"
+          )?.innerText?.trim() ||
+          document.querySelector(".ux-seller-section__sellerName, .seller-info a")?.innerText?.trim() ||
+          null;
         return { sellerName: name, sellerProfile: profileLink };
       });
 
@@ -235,15 +214,13 @@ export async function scrapeEbayCars(
           );
           await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 35000 });
           await delay(150);
-
           const sellerText = await pPage.evaluate(() => document.body.innerText).catch(() => "");
-          sellerProfilePhone = extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
-          sellerProfileEmail = extractFirstMatch(sellerText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
-
+          sellerProfilePhone =
+            extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
+          sellerProfileEmail =
+            extractFirstMatch(sellerText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
           await pPage.close();
-        } catch (err) {
-          console.warn("⚠️ seller profile fetch failed:", err?.message || err);
-        }
+        } catch (err) {}
       }
 
       const finalPhone = sellerProfilePhone || phone || null;
@@ -261,39 +238,58 @@ export async function scrapeEbayCars(
         scrapedAt: new Date(),
       };
     } catch (err) {
-      if (pageDetail && !pageDetail.isClosed && !pageDetail.isClosed()) {
-        try { await pageDetail.close(); } catch {}
+      if (pageDetail && !pageDetail.isClosed()) {
+        try {
+          await pageDetail.close();
+        } catch {}
       }
-      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err?.message || err}`);
+      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
       if (attempt < retryLimit) {
         await delay(700 * attempt);
         return fetchDetailWithRetry(item, attempt + 1);
       }
-      return { ...item, sellerName: null, sellerProfile: null, sellerContact: null, sellerEmail: null, description: null, scrapedAt: new Date() };
+      return {
+        ...item,
+        sellerName: null,
+        sellerProfile: null,
+        sellerContact: null,
+        sellerEmail: null,
+        description: null,
+        scrapedAt: new Date(),
+      };
     }
   }
 
   const total = collected.length;
+
   for (let i = 0; i < total; i += concurrency) {
     const batch = collected.slice(i, i + concurrency);
     console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
+
     const promises = batch.map((item, idx) =>
       fetchDetailWithRetry(item).then((res) => {
         const indexGlobal = i + idx + 1;
-        console.log(`✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${res.sellerContact || "N/A"}, Email: ${res.sellerEmail || "N/A"}`);
+        console.log(
+          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
+            res.sellerContact || "N/A"
+          }, Email: ${res.sellerEmail || "N/A"}`
+        );
         return res;
       })
     );
+
     const results = await Promise.allSettled(promises);
+
     for (const r of results) {
       if (r.status === "fulfilled") detailed.push(r.value);
       else console.warn("❌ One detail failed in batch (unhandled):", r.reason);
     }
+
     await delay(500);
   }
 
-  try { await page.close(); } catch {}
-  try { await browser.close(); } catch {}
+  await page.close();
+  await browser.close();
 
   console.log(`\n✅ DONE → ${detailed.length} final listings`);
   return detailed;
