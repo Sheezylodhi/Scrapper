@@ -12,7 +12,7 @@ function extractFirstMatch(text, regex) {
 
 export async function scrapeEbayCars(
   searchUrl,
-  maxPages = 50,
+  maxPages = 20, // reduce maxPages for free tier
   keyword = "",
   fromDate,
   toDate,
@@ -29,17 +29,18 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-const browser = await puppeteer.launch({
-  headless: "new",
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-software-rasterizer"
-  ]
-});
-
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer"
+    ],
+    defaultViewport: null,
+    timeout: 0 // unlimited
+  });
 
   const page = await browser.newPage();
   await page.setUserAgent(
@@ -68,11 +69,11 @@ const browser = await puppeteer.launch({
     console.log(`\n🌐 Visiting Page ${currentPage}: ${pageUrl}`);
 
     try {
-      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(250);
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+      await delay(500);
 
       try {
-        await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
+        await page.waitForSelector("li.s-item, li.s-card", { timeout: 10000 });
       } catch {}
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
@@ -133,7 +134,7 @@ const browser = await puppeteer.launch({
 
       console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
       currentPage++;
-      await delay(300);
+      await delay(700); // slow down for free tier
     } catch (err) {
       console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
       currentPage++;
@@ -144,20 +145,20 @@ const browser = await puppeteer.launch({
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
   const detailed = [];
-  const concurrency = 6;
+  const concurrency = 2; // reduce concurrency for Render Free Tier
   const retryLimit = 2;
 
   async function fetchDetailWithRetry(item, attempt = 1) {
     let pageDetail;
     try {
       pageDetail = await browser.newPage();
-      pageDetail.setDefaultNavigationTimeout(45000);
+      pageDetail.setDefaultNavigationTimeout(90000);
       await pageDetail.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
       );
 
-      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(200);
+      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 90000 });
+      await delay(400);
 
       let descriptionText = null;
       const descIframeUrl = await pageDetail
@@ -166,18 +167,13 @@ const browser = await puppeteer.launch({
 
       if (descIframeUrl) {
         try {
-          const dpage = await browser.newPage();
-          dpage.setDefaultNavigationTimeout(45000);
-          await dpage.setUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-          );
+          const dpage = pageDetail; // reuse same page instead of opening new
           const iframeUrl = descIframeUrl.startsWith("http")
             ? descIframeUrl
             : new URL(descIframeUrl, item.productLink).toString();
-          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-          await delay(150);
+          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+          await delay(300);
           descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
-          await dpage.close();
         } catch {}
       }
 
@@ -187,7 +183,7 @@ const browser = await puppeteer.launch({
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","),
+              ].join(","), 
               (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
@@ -203,9 +199,8 @@ const browser = await puppeteer.launch({
           document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")
             ?.href || null;
         const name =
-          document.querySelector(
-            ".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb"
-          )?.innerText?.trim() ||
+          document.querySelector(".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb")
+            ?.innerText?.trim() ||
           document.querySelector(".ux-seller-section__sellerName, .seller-info a")?.innerText?.trim() ||
           null;
         return { sellerName: name, sellerProfile: profileLink };
@@ -216,19 +211,14 @@ const browser = await puppeteer.launch({
 
       if (sellerProfile) {
         try {
-          const pPage = await browser.newPage();
-          pPage.setDefaultNavigationTimeout(35000);
-          await pPage.setUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-          );
-          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 35000 });
-          await delay(150);
+          const pPage = pageDetail; // reuse
+          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 90000 });
+          await delay(300);
           const sellerText = await pPage.evaluate(() => document.body.innerText).catch(() => "");
           sellerProfilePhone =
             extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
           sellerProfileEmail =
             extractFirstMatch(sellerText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
-          await pPage.close();
         } catch {}
       }
 
@@ -248,27 +238,14 @@ const browser = await puppeteer.launch({
       };
     } catch (err) {
       if (pageDetail && !pageDetail.isClosed()) {
-        try {
-          await pageDetail.close();
-        } catch {}
+        try { await pageDetail.close(); } catch {}
       }
-
       console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
-
       if (attempt < retryLimit) {
-        await delay(700 * attempt);
+        await delay(1000 * attempt);
         return fetchDetailWithRetry(item, attempt + 1);
       }
-
-      return {
-        ...item,
-        sellerName: null,
-        sellerProfile: null,
-        sellerContact: null,
-        sellerEmail: null,
-        description: null,
-        scrapedAt: new Date(),
-      };
+      return { ...item, sellerName: null, sellerProfile: null, sellerContact: null, sellerEmail: null, description: null, scrapedAt: new Date() };
     }
   }
 
@@ -276,28 +253,20 @@ const browser = await puppeteer.launch({
 
   for (let i = 0; i < total; i += concurrency) {
     const batch = collected.slice(i, i + concurrency);
-
     console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
 
     const promises = batch.map((item, idx) =>
       fetchDetailWithRetry(item).then((res) => {
         const indexGlobal = i + idx + 1;
-        console.log(
-          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
-            res.sellerContact || "N/A"
-          }, Email: ${res.sellerEmail || "N/A"}`
-        );
+        console.log(`✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${res.sellerContact || "N/A"}, Email: ${res.sellerEmail || "N/A"}`);
         return res;
       })
     );
 
     const results = await Promise.allSettled(promises);
-
     for (const r of results) {
       if (r.status === "fulfilled") detailed.push(r.value);
-      else console.warn("❌ One detail failed in batch (unhandled):", r.reason);
     }
-
     await delay(500);
   }
 
