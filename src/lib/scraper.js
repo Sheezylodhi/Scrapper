@@ -30,7 +30,8 @@ export async function scrapeEbayCars(
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
 const browser = await puppeteer.launch({
-  headless: "new",
+  headless: true,
+  executablePath: "/snap/bin/chromium", // VPS pe installed Chromium
   args: [
     "--no-sandbox",
     "--disable-setuid-sandbox",
