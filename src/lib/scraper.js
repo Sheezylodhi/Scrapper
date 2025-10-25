@@ -12,7 +12,7 @@ function extractFirstMatch(text, regex) {
 
 export async function scrapeEbayCars(
   searchUrl,
-  maxPages = 20, // reduce maxPages for free tier
+  maxPages = 5, // Reduced for free server
   keyword = "",
   fromDate,
   toDate,
@@ -36,10 +36,10 @@ export async function scrapeEbayCars(
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--disable-software-rasterizer"
+      "--disable-software-rasterizer",
     ],
     defaultViewport: null,
-    timeout: 0 // unlimited
+    timeout: 0,
   });
 
   const page = await browser.newPage();
@@ -79,8 +79,7 @@ export async function scrapeEbayCars(
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes.map((n) => ({
           title:
-            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
-              ?.innerText?.trim() || "",
+            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")?.innerText?.trim() || "",
           link:
             n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
             n.querySelector("a[href*='/itm/']")?.href ||
@@ -90,8 +89,7 @@ export async function scrapeEbayCars(
               ".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price"
             )?.innerText?.trim() || "",
           image:
-            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")
-              ?.src || "",
+            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")?.src || "",
           postedDate:
             n.querySelector(
               ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle"
@@ -134,7 +132,7 @@ export async function scrapeEbayCars(
 
       console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
       currentPage++;
-      await delay(700); // slow down for free tier
+      await delay(700);
     } catch (err) {
       console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
       currentPage++;
@@ -145,10 +143,8 @@ export async function scrapeEbayCars(
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
   const detailed = [];
-  const concurrency = 2; // reduce concurrency for Render Free Tier
-  const retryLimit = 2;
 
-  async function fetchDetailWithRetry(item, attempt = 1) {
+  async function fetchDetailSequential(item) {
     let pageDetail;
     try {
       pageDetail = await browser.newPage();
@@ -167,13 +163,12 @@ export async function scrapeEbayCars(
 
       if (descIframeUrl) {
         try {
-          const dpage = pageDetail; // reuse same page instead of opening new
           const iframeUrl = descIframeUrl.startsWith("http")
             ? descIframeUrl
             : new URL(descIframeUrl, item.productLink).toString();
-          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+          await pageDetail.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
           await delay(300);
-          descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
+          descriptionText = await pageDetail.evaluate(() => document.body.innerText).catch(() => null);
         } catch {}
       }
 
@@ -196,11 +191,9 @@ export async function scrapeEbayCars(
 
       const { sellerName, sellerProfile } = await pageDetail.evaluate(() => {
         const profileLink =
-          document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")
-            ?.href || null;
+          document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")?.href || null;
         const name =
-          document.querySelector(".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb")
-            ?.innerText?.trim() ||
+          document.querySelector(".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb")?.innerText?.trim() ||
           document.querySelector(".ux-seller-section__sellerName, .seller-info a")?.innerText?.trim() ||
           null;
         return { sellerName: name, sellerProfile: profileLink };
@@ -211,10 +204,9 @@ export async function scrapeEbayCars(
 
       if (sellerProfile) {
         try {
-          const pPage = pageDetail; // reuse
-          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 90000 });
+          await pageDetail.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 90000 });
           await delay(300);
-          const sellerText = await pPage.evaluate(() => document.body.innerText).catch(() => "");
+          const sellerText = await pageDetail.evaluate(() => document.body.innerText).catch(() => "");
           sellerProfilePhone =
             extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
           sellerProfileEmail =
@@ -240,34 +232,17 @@ export async function scrapeEbayCars(
       if (pageDetail && !pageDetail.isClosed()) {
         try { await pageDetail.close(); } catch {}
       }
-      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
-      if (attempt < retryLimit) {
-        await delay(1000 * attempt);
-        return fetchDetailWithRetry(item, attempt + 1);
-      }
+      console.warn(`⚠️ Detail Error for ${item.productLink}: ${err.message}`);
       return { ...item, sellerName: null, sellerProfile: null, sellerContact: null, sellerEmail: null, description: null, scrapedAt: new Date() };
     }
   }
 
-  const total = collected.length;
-
-  for (let i = 0; i < total; i += concurrency) {
-    const batch = collected.slice(i, i + concurrency);
-    console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
-
-    const promises = batch.map((item, idx) =>
-      fetchDetailWithRetry(item).then((res) => {
-        const indexGlobal = i + idx + 1;
-        console.log(`✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${res.sellerContact || "N/A"}, Email: ${res.sellerEmail || "N/A"}`);
-        return res;
-      })
-    );
-
-    const results = await Promise.allSettled(promises);
-    for (const r of results) {
-      if (r.status === "fulfilled") detailed.push(r.value);
-    }
-    await delay(500);
+  // Sequential fetch to avoid memory crash
+  for (let i = 0; i < collected.length; i++) {
+    console.log(`\n🔁 Processing item ${i + 1}/${collected.length}`);
+    const res = await fetchDetailSequential(collected[i]);
+    detailed.push(res);
+    await delay(300); // safe delay
   }
 
   await page.close();
