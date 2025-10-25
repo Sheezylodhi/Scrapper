@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+
 import { NextResponse } from "next/server";
 import { scrapeEbayCars } from "@/lib/scraper";
 import { connectToDatabase } from "@/lib/dbConnect";
@@ -21,7 +22,7 @@ export async function POST(req) {
     await Listing.deleteMany({ expiresAt: { $lte: new Date() } });
 
     await Promise.all(
-      docs.map(d =>
+      docs.map((d) =>
         Listing.updateOne({ productLink: d.productLink }, { $set: d }, { upsert: true })
       )
     );
