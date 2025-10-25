@@ -1,7 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-
 import { NextResponse } from "next/server";
 import { scrapeEbayCars } from "@/lib/scraper";
 import { connectToDatabase } from "@/lib/dbConnect";

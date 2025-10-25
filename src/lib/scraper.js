@@ -1,5 +1,5 @@
-import puppeteer from "puppeteer";
-
+import chromium from "chrome-aws-lambda"; // serverless Chromium
+// delay and extractFirstMatch remain the same
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -29,17 +29,13 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-const browser = await puppeteer.launch({
-  headless: "new",
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-software-rasterizer"
-  ]
-});
-
+  // ---- Launch Chromium for serverless ----
+  const browser = await chromium.puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath,
+    headless: chromium.headless,
+  });
 
   const page = await browser.newPage();
   await page.setUserAgent(
@@ -187,7 +183,7 @@ const browser = await puppeteer.launch({
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","),
+              ].join(","), 
               (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
