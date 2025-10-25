@@ -12,7 +12,7 @@ function extractFirstMatch(text, regex) {
 
 export async function scrapeEbayCars(
   searchUrl,
-  maxPages = 5, // Reduced for free server
+  maxPages = 50,
   keyword = "",
   fromDate,
   toDate,
@@ -29,18 +29,17 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-software-rasterizer",
-    ],
-    defaultViewport: null,
-    timeout: 0,
-  });
+const browser = await puppeteer.launch({
+  headless: "new",
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-software-rasterizer"
+  ]
+});
+
 
   const page = await browser.newPage();
   await page.setUserAgent(
@@ -69,17 +68,18 @@ export async function scrapeEbayCars(
     console.log(`\n🌐 Visiting Page ${currentPage}: ${pageUrl}`);
 
     try {
-      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
-      await delay(500);
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await delay(250);
 
       try {
-        await page.waitForSelector("li.s-item, li.s-card", { timeout: 10000 });
+        await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
       } catch {}
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes.map((n) => ({
           title:
-            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")?.innerText?.trim() || "",
+            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
+              ?.innerText?.trim() || "",
           link:
             n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
             n.querySelector("a[href*='/itm/']")?.href ||
@@ -89,7 +89,8 @@ export async function scrapeEbayCars(
               ".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price"
             )?.innerText?.trim() || "",
           image:
-            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")?.src || "",
+            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")
+              ?.src || "",
           postedDate:
             n.querySelector(
               ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle"
@@ -132,7 +133,7 @@ export async function scrapeEbayCars(
 
       console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
       currentPage++;
-      await delay(700);
+      await delay(300);
     } catch (err) {
       console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
       currentPage++;
@@ -143,18 +144,20 @@ export async function scrapeEbayCars(
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
   const detailed = [];
+  const concurrency = 6;
+  const retryLimit = 2;
 
-  async function fetchDetailSequential(item) {
+  async function fetchDetailWithRetry(item, attempt = 1) {
     let pageDetail;
     try {
       pageDetail = await browser.newPage();
-      pageDetail.setDefaultNavigationTimeout(90000);
+      pageDetail.setDefaultNavigationTimeout(45000);
       await pageDetail.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
       );
 
-      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 90000 });
-      await delay(400);
+      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await delay(200);
 
       let descriptionText = null;
       const descIframeUrl = await pageDetail
@@ -163,12 +166,18 @@ export async function scrapeEbayCars(
 
       if (descIframeUrl) {
         try {
+          const dpage = await browser.newPage();
+          dpage.setDefaultNavigationTimeout(45000);
+          await dpage.setUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+          );
           const iframeUrl = descIframeUrl.startsWith("http")
             ? descIframeUrl
             : new URL(descIframeUrl, item.productLink).toString();
-          await pageDetail.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
-          await delay(300);
-          descriptionText = await pageDetail.evaluate(() => document.body.innerText).catch(() => null);
+          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+          await delay(150);
+          descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
+          await dpage.close();
         } catch {}
       }
 
@@ -178,7 +187,7 @@ export async function scrapeEbayCars(
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","), 
+              ].join(","),
               (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
@@ -191,9 +200,12 @@ export async function scrapeEbayCars(
 
       const { sellerName, sellerProfile } = await pageDetail.evaluate(() => {
         const profileLink =
-          document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")?.href || null;
+          document.querySelector(".mbg-id a, a[href*='/usr/'], a[href*='/user/'], .seller-info a")
+            ?.href || null;
         const name =
-          document.querySelector(".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb")?.innerText?.trim() ||
+          document.querySelector(
+            ".mbg-nw, .ux-seller-section__title, .seller-info-name, .si-fb"
+          )?.innerText?.trim() ||
           document.querySelector(".ux-seller-section__sellerName, .seller-info a")?.innerText?.trim() ||
           null;
         return { sellerName: name, sellerProfile: profileLink };
@@ -204,13 +216,19 @@ export async function scrapeEbayCars(
 
       if (sellerProfile) {
         try {
-          await pageDetail.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 90000 });
-          await delay(300);
-          const sellerText = await pageDetail.evaluate(() => document.body.innerText).catch(() => "");
+          const pPage = await browser.newPage();
+          pPage.setDefaultNavigationTimeout(35000);
+          await pPage.setUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+          );
+          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 35000 });
+          await delay(150);
+          const sellerText = await pPage.evaluate(() => document.body.innerText).catch(() => "");
           sellerProfilePhone =
             extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
           sellerProfileEmail =
             extractFirstMatch(sellerText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
+          await pPage.close();
         } catch {}
       }
 
@@ -230,19 +248,57 @@ export async function scrapeEbayCars(
       };
     } catch (err) {
       if (pageDetail && !pageDetail.isClosed()) {
-        try { await pageDetail.close(); } catch {}
+        try {
+          await pageDetail.close();
+        } catch {}
       }
-      console.warn(`⚠️ Detail Error for ${item.productLink}: ${err.message}`);
-      return { ...item, sellerName: null, sellerProfile: null, sellerContact: null, sellerEmail: null, description: null, scrapedAt: new Date() };
+
+      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
+
+      if (attempt < retryLimit) {
+        await delay(700 * attempt);
+        return fetchDetailWithRetry(item, attempt + 1);
+      }
+
+      return {
+        ...item,
+        sellerName: null,
+        sellerProfile: null,
+        sellerContact: null,
+        sellerEmail: null,
+        description: null,
+        scrapedAt: new Date(),
+      };
     }
   }
 
-  // Sequential fetch to avoid memory crash
-  for (let i = 0; i < collected.length; i++) {
-    console.log(`\n🔁 Processing item ${i + 1}/${collected.length}`);
-    const res = await fetchDetailSequential(collected[i]);
-    detailed.push(res);
-    await delay(300); // safe delay
+  const total = collected.length;
+
+  for (let i = 0; i < total; i += concurrency) {
+    const batch = collected.slice(i, i + concurrency);
+
+    console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
+
+    const promises = batch.map((item, idx) =>
+      fetchDetailWithRetry(item).then((res) => {
+        const indexGlobal = i + idx + 1;
+        console.log(
+          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
+            res.sellerContact || "N/A"
+          }, Email: ${res.sellerEmail || "N/A"}`
+        );
+        return res;
+      })
+    );
+
+    const results = await Promise.allSettled(promises);
+
+    for (const r of results) {
+      if (r.status === "fulfilled") detailed.push(r.value);
+      else console.warn("❌ One detail failed in batch (unhandled):", r.reason);
+    }
+
+    await delay(500);
   }
 
   await page.close();
