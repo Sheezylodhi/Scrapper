@@ -1,5 +1,6 @@
-import chromium from "chrome-aws-lambda"; // serverless Chromium
-// delay and extractFirstMatch remain the same
+import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer-core";
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -29,8 +30,8 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  // ---- Launch Chromium for serverless ----
-  const browser = await chromium.puppeteer.launch({
+  // Launch Chromium (Vercel-ready)
+  const browser = await puppeteer.launch({
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
     executablePath: await chromium.executablePath,
@@ -38,6 +39,7 @@ export async function scrapeEbayCars(
   });
 
   const page = await browser.newPage();
+
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
@@ -94,18 +96,11 @@ export async function scrapeEbayCars(
         }))
       );
 
-      if (!pageCards || pageCards.length === 0) {
-        console.log("📦 Found 0 products on page");
-      } else {
-        console.log(`📦 Found ${pageCards.length} products on page`);
-      }
-
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
 
         if (useDate && d) {
           if (d < from) {
-            console.log(`⏹ Stopping: found postedDate ${card.postedDate} < fromDate`);
             stopPaging = true;
             break;
           }
@@ -127,7 +122,6 @@ export async function scrapeEbayCars(
         });
       }
 
-      console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
       currentPage++;
       await delay(300);
     } catch (err) {
@@ -137,10 +131,8 @@ export async function scrapeEbayCars(
     }
   }
 
-  console.log(`\n🌐 Total candidates collected: ${collected.length}`);
-
   const detailed = [];
-  const concurrency = 6;
+  const concurrency = 3; // safer for serverless
   const retryLimit = 2;
 
   async function fetchDetailWithRetry(item, attempt = 1) {
@@ -183,7 +175,7 @@ export async function scrapeEbayCars(
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","), 
+              ].join(","),
               (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
@@ -244,12 +236,8 @@ export async function scrapeEbayCars(
       };
     } catch (err) {
       if (pageDetail && !pageDetail.isClosed()) {
-        try {
-          await pageDetail.close();
-        } catch {}
+        try { await pageDetail.close(); } catch {}
       }
-
-      console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
 
       if (attempt < retryLimit) {
         await delay(700 * attempt);
@@ -268,32 +256,11 @@ export async function scrapeEbayCars(
     }
   }
 
-  const total = collected.length;
-
-  for (let i = 0; i < total; i += concurrency) {
+  for (let i = 0; i < collected.length; i += concurrency) {
     const batch = collected.slice(i, i + concurrency);
-
-    console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
-
-    const promises = batch.map((item, idx) =>
-      fetchDetailWithRetry(item).then((res) => {
-        const indexGlobal = i + idx + 1;
-        console.log(
-          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
-            res.sellerContact || "N/A"
-          }, Email: ${res.sellerEmail || "N/A"}`
-        );
-        return res;
-      })
-    );
-
+    const promises = batch.map((item) => fetchDetailWithRetry(item));
     const results = await Promise.allSettled(promises);
-
-    for (const r of results) {
-      if (r.status === "fulfilled") detailed.push(r.value);
-      else console.warn("❌ One detail failed in batch (unhandled):", r.reason);
-    }
-
+    results.forEach(r => { if(r.status==="fulfilled") detailed.push(r.value); });
     await delay(500);
   }
 

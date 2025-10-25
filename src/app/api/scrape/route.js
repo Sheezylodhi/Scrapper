@@ -21,7 +21,7 @@ export async function POST(req) {
     await Listing.deleteMany({ expiresAt: { $lte: new Date() } });
 
     await Promise.all(
-      docs.map((d) =>
+      docs.map(d =>
         Listing.updateOne({ productLink: d.productLink }, { $set: d }, { upsert: true })
       )
     );
