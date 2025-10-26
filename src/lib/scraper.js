@@ -21,17 +21,18 @@ function extractFirstMatch(text, regex) {
 function parseCardDate(text) {
   if (!text) return null;
 
+  const now = new Date();
+
   // e.g., "Oct-26 20:30"
   const match = text.match(/([A-Za-z]+)-(\d{1,2})\s+(\d{2}):(\d{2})/);
   if (match) {
     const [_, mon, day, hour, min] = match;
-    const year = new Date().getFullYear();
+    const year = now.getFullYear();
     return new Date(`${mon} ${day}, ${year} ${hour}:${min}:00`);
   }
 
   // Handle "Today"
   if (/Today/i.test(text)) {
-    const now = new Date();
     const timeMatch = text.match(/(\d{2}):(\d{2})/);
     if (timeMatch) {
       const [_, h, m] = timeMatch;
@@ -41,7 +42,6 @@ function parseCardDate(text) {
 
   // Handle "Yesterday"
   if (/Yesterday/i.test(text)) {
-    const now = new Date();
     const timeMatch = text.match(/(\d{2}):(\d{2})/);
     if (timeMatch) {
       const [_, h, m] = timeMatch;
