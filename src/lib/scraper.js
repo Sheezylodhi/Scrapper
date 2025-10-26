@@ -4,6 +4,10 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function randomDelay(min = 300, max = 800) {
+  return delay(Math.floor(Math.random() * (max - min + 1)) + min);
+}
+
 function extractFirstMatch(text, regex) {
   if (!text) return null;
   const m = text.match(regex);
@@ -29,22 +33,21 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/google-chrome-stable', // ← use this (system chrome)
-  headless: true, // true for VPS
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--no-zygote',
-    '--single-process',
-    '--disable-accelerated-2d-canvas',
-    '--disable-software-rasterizer'
-  ],
-  ignoreHTTPSErrors: true
-});
-
+  const browser = await puppeteer.launch({
+    executablePath: '/usr/bin/google-chrome-stable',
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process',
+      '--disable-accelerated-2d-canvas',
+      '--disable-software-rasterizer'
+    ],
+    ignoreHTTPSErrors: true
+  });
 
   const page = await browser.newPage();
   await page.setUserAgent(
@@ -73,11 +76,11 @@ const browser = await puppeteer.launch({
     console.log(`\n🌐 Visiting Page ${currentPage}: ${pageUrl}`);
 
     try {
-      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(250);
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+      await randomDelay();
 
       try {
-        await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
+        await page.waitForSelector("li.s-item, li.s-card", { timeout: 10000 });
       } catch {}
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
@@ -103,11 +106,8 @@ const browser = await puppeteer.launch({
         }))
       );
 
-      if (!pageCards || pageCards.length === 0) {
-        console.log("📦 Found 0 products on page");
-      } else {
-        console.log(`📦 Found ${pageCards.length} products on page`);
-      }
+      if (!pageCards || pageCards.length === 0) console.log("📦 Found 0 products on page");
+      else console.log(`📦 Found ${pageCards.length} products on page`);
 
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
@@ -138,7 +138,7 @@ const browser = await puppeteer.launch({
 
       console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
       currentPage++;
-      await delay(300);
+      await randomDelay();
     } catch (err) {
       console.warn(`⚠️ Page Error (page ${currentPage}): ${err.message}`);
       currentPage++;
@@ -150,19 +150,19 @@ const browser = await puppeteer.launch({
 
   const detailed = [];
   const concurrency = 6;
-  const retryLimit = 2;
+  const retryLimit = 3;
 
   async function fetchDetailWithRetry(item, attempt = 1) {
     let pageDetail;
     try {
       pageDetail = await browser.newPage();
-      pageDetail.setDefaultNavigationTimeout(45000);
+      pageDetail.setDefaultNavigationTimeout(120000);
       await pageDetail.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
       );
 
-      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(200);
+      await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 120000 });
+      await randomDelay(400, 900);
 
       let descriptionText = null;
       const descIframeUrl = await pageDetail
@@ -172,15 +172,15 @@ const browser = await puppeteer.launch({
       if (descIframeUrl) {
         try {
           const dpage = await browser.newPage();
-          dpage.setDefaultNavigationTimeout(45000);
+          dpage.setDefaultNavigationTimeout(120000);
           await dpage.setUserAgent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
           );
           const iframeUrl = descIframeUrl.startsWith("http")
             ? descIframeUrl
             : new URL(descIframeUrl, item.productLink).toString();
-          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-          await delay(150);
+          await dpage.goto(iframeUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+          await randomDelay(200, 500);
           descriptionText = await dpage.evaluate(() => document.body.innerText).catch(() => null);
           await dpage.close();
         } catch {}
@@ -192,8 +192,7 @@ const browser = await puppeteer.launch({
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","),
-              (nodes) => nodes.map((n) => n.innerText || "").join("\n")
+              ].join(","), (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
       }
@@ -222,12 +221,12 @@ const browser = await puppeteer.launch({
       if (sellerProfile) {
         try {
           const pPage = await browser.newPage();
-          pPage.setDefaultNavigationTimeout(35000);
+          pPage.setDefaultNavigationTimeout(90000);
           await pPage.setUserAgent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
           );
-          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 35000 });
-          await delay(150);
+          await pPage.goto(sellerProfile, { waitUntil: "domcontentloaded", timeout: 90000 });
+          await randomDelay(150, 400);
           const sellerText = await pPage.evaluate(() => document.body.innerText).catch(() => "");
           sellerProfilePhone =
             extractFirstMatch(sellerText, /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g) || null;
@@ -253,15 +252,13 @@ const browser = await puppeteer.launch({
       };
     } catch (err) {
       if (pageDetail && !pageDetail.isClosed()) {
-        try {
-          await pageDetail.close();
-        } catch {}
+        try { await pageDetail.close(); } catch {}
       }
 
       console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
 
       if (attempt < retryLimit) {
-        await delay(700 * attempt);
+        await randomDelay(600, 1200);
         return fetchDetailWithRetry(item, attempt + 1);
       }
 
@@ -303,7 +300,7 @@ const browser = await puppeteer.launch({
       else console.warn("❌ One detail failed in batch (unhandled):", r.reason);
     }
 
-    await delay(500);
+    await randomDelay(500, 900);
   }
 
   await page.close();
