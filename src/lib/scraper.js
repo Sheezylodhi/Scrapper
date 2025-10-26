@@ -30,16 +30,21 @@ export async function scrapeEbayCars(
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
 const browser = await puppeteer.launch({
-  headless: true,
-  executablePath: "/usr/bin/chromium-browser",
+  executablePath: '/usr/bin/google-chrome-stable', // ← use this (system chrome)
+  headless: true, // true for VPS
   args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-software-rasterizer"
-  ]
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process',
+    '--disable-accelerated-2d-canvas',
+    '--disable-software-rasterizer'
+  ],
+  ignoreHTTPSErrors: true
 });
+
 
 
   const page = await browser.newPage();
