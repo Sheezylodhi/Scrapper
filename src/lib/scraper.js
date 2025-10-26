@@ -1,5 +1,8 @@
 import puppeteer from "puppeteer";
 
+// ✅ Set VPS Node.js process timezone to Pakistan
+process.env.TZ = "Asia/Karachi";
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -12,6 +15,41 @@ function extractFirstMatch(text, regex) {
   if (!text) return null;
   const m = text.match(regex);
   return m ? m[0] : null;
+}
+
+// 🔹 Updated parseCardDate to handle proper timezone & Today/Yesterday
+function parseCardDate(text) {
+  if (!text) return null;
+
+  // e.g., "Oct-26 20:30"
+  const match = text.match(/([A-Za-z]+)-(\d{1,2})\s+(\d{2}):(\d{2})/);
+  if (match) {
+    const [_, mon, day, hour, min] = match;
+    const year = new Date().getFullYear();
+    return new Date(`${mon} ${day}, ${year} ${hour}:${min}:00`);
+  }
+
+  // Handle "Today"
+  if (/Today/i.test(text)) {
+    const now = new Date();
+    const timeMatch = text.match(/(\d{2}):(\d{2})/);
+    if (timeMatch) {
+      const [_, h, m] = timeMatch;
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+    }
+  }
+
+  // Handle "Yesterday"
+  if (/Yesterday/i.test(text)) {
+    const now = new Date();
+    const timeMatch = text.match(/(\d{2}):(\d{2})/);
+    if (timeMatch) {
+      const [_, h, m] = timeMatch;
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, h, m);
+    }
+  }
+
+  return null;
 }
 
 export async function scrapeEbayCars(
@@ -34,7 +72,7 @@ export async function scrapeEbayCars(
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
   const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/google-chrome-stable',
+    executablePath: '/usr/bin/google-chrome-stable',
     headless: true,
     args: [
       '--no-sandbox',
@@ -53,17 +91,6 @@ export async function scrapeEbayCars(
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
-
-  function parseCardDate(text) {
-    if (!text) return null;
-    const match = text.match(/([A-Za-z]+)-(\d{1,2})\s+(\d{2}):(\d{2})/);
-    if (match) {
-      const [_, mon, day, hour, min] = match;
-      const year = new Date().getFullYear();
-      return new Date(`${mon} ${day}, ${year} ${hour}:${min}`);
-    }
-    return null;
-  }
 
   let currentPage = 1;
   const collected = [];
@@ -111,6 +138,7 @@ export async function scrapeEbayCars(
 
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
+        console.log("Parsed date:", d, "Original:", card.postedDate);
 
         if (useDate && d) {
           if (d < from) {
@@ -285,9 +313,7 @@ export async function scrapeEbayCars(
       fetchDetailWithRetry(item).then((res) => {
         const indexGlobal = i + idx + 1;
         console.log(
-          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
-            res.sellerContact || "N/A"
-          }, Email: ${res.sellerEmail || "N/A"}`
+          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${res.sellerContact || "N/A"}, Email: ${res.sellerEmail || "N/A"}`
         );
         return res;
       })
