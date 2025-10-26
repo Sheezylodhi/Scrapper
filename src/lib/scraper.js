@@ -10,29 +10,6 @@ function extractFirstMatch(text, regex) {
   return m ? m[0] : null;
 }
 
-// Robust date parser
-function parseCardDate(text) {
-  if (!text) return null;
-  text = text.toLowerCase();
-  const now = new Date();
-
-  if (text.includes("today")) return now;
-  if (text.includes("yesterday")) return new Date(now.setDate(now.getDate() - 1));
-
-  const dateMatch = text.match(/([A-Za-z]{3,})\s+(\d{1,2})(?:,\s*(\d{4}))?/);
-  if (dateMatch) {
-    const [_, mon, day, year] = dateMatch;
-    return new Date(`${mon} ${day}, ${year || now.getFullYear()}`);
-  }
-
-  const agoMatch = text.match(/(\d+)\s*d\s*ago/);
-  if (agoMatch) {
-    return new Date(now.setDate(now.getDate() - parseInt(agoMatch[1])));
-  }
-
-  return null;
-}
-
 export async function scrapeEbayCars(
   searchUrl,
   maxPages = 50,
@@ -52,25 +29,38 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  const browser = await puppeteer.launch({
-    headless: "new", // better for VPS
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--single-process",
-      "--disable-accelerated-2d-canvas",
-      "--disable-software-rasterizer",
-    ],
-    ignoreHTTPSErrors: true,
-  });
+const browser = await puppeteer.launch({
+  executablePath: '/usr/bin/google-chrome-stable', // ← use this (system chrome)
+  headless: true, // true for VPS
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process',
+    '--disable-accelerated-2d-canvas',
+    '--disable-software-rasterizer'
+  ],
+  ignoreHTTPSErrors: true
+});
+
 
   const page = await browser.newPage();
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
-  await page.setViewport({ width: 1280, height: 800 });
+
+  function parseCardDate(text) {
+    if (!text) return null;
+    const match = text.match(/([A-Za-z]+)-(\d{1,2})\s+(\d{2}):(\d{2})/);
+    if (match) {
+      const [_, mon, day, hour, min] = match;
+      const year = new Date().getFullYear();
+      return new Date(`${mon} ${day}, ${year} ${hour}:${min}`);
+    }
+    return null;
+  }
 
   let currentPage = 1;
   const collected = [];
@@ -84,9 +74,7 @@ export async function scrapeEbayCars(
 
     try {
       await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(500);
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await delay(300);
+      await delay(250);
 
       try {
         await page.waitForSelector("li.s-item, li.s-card", { timeout: 8000 });
@@ -94,15 +82,32 @@ export async function scrapeEbayCars(
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes.map((n) => ({
-          title: n.querySelector(".s-item__title")?.innerText?.trim() || "",
-          link: n.querySelector("a.s-item__link")?.href || "",
-          price: n.querySelector(".s-item__price")?.innerText?.trim() || "",
-          image: n.querySelector("img.s-item__image-img")?.src || "",
-          postedDate: n.querySelector(".s-item__listingDate")?.innerText?.trim() || "",
+          title:
+            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
+              ?.innerText?.trim() || "",
+          link:
+            n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
+            n.querySelector("a[href*='/itm/']")?.href ||
+            "",
+          price:
+            n.querySelector(
+              ".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price"
+            )?.innerText?.trim() || "",
+          image:
+            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")
+              ?.src || "",
+          postedDate:
+            n.querySelector(
+              ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle"
+            )?.innerText?.trim() || "",
         }))
       );
 
-      console.log(`📦 Found ${pageCards.length} products on page`);
+      if (!pageCards || pageCards.length === 0) {
+        console.log("📦 Found 0 products on page");
+      } else {
+        console.log(`📦 Found ${pageCards.length} products on page`);
+      }
 
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
@@ -157,9 +162,7 @@ export async function scrapeEbayCars(
       );
 
       await pageDetail.goto(item.productLink, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await delay(300);
-      await pageDetail.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await delay(300);
+      await delay(200);
 
       let descriptionText = null;
       const descIframeUrl = await pageDetail
@@ -285,7 +288,9 @@ export async function scrapeEbayCars(
       fetchDetailWithRetry(item).then((res) => {
         const indexGlobal = i + idx + 1;
         console.log(
-          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${res.sellerContact || "N/A"}, Email: ${res.sellerEmail || "N/A"}`
+          `✔️ Batch item ${indexGlobal}/${total} processed → Phone: ${
+            res.sellerContact || "N/A"
+          }, Email: ${res.sellerEmail || "N/A"}`
         );
         return res;
       })

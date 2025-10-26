@@ -28,6 +28,7 @@
     "json2xls": "^0.1.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.545.0",
+    "moment-timezone": "^0.6.0",
     "mongoose": "^8.19.1",
     "next": "15.5.5",
     "node-fetch": "^3.3.2",
