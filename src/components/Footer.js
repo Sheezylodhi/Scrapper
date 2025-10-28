@@ -1,6 +1,7 @@
 export default function Footer() {
   return (
-    <footer className="mt-10 border-t border-gray-200 bg-white h-[50px] flex flex-col justify-center text-center text-sm text-gray-500">
+    <footer className="w-full bg-white text-center border-t border-gray-200 py-3 text-sm text-gray-600">
+
      <div className="mt-1">
       © {new Date().getFullYear()}{" "}
       <span className="font-semibold text-gray-700">FastScraperPro  All rights reserved.</span>. 

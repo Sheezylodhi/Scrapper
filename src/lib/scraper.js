@@ -72,7 +72,7 @@ export async function scrapeEbayCars(
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
   const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/google-chrome-stable',
+ executablePath: '/usr/bin/google-chrome-stable',
     headless: true,
     args: [
       '--no-sandbox',
@@ -111,26 +111,47 @@ export async function scrapeEbayCars(
       } catch {}
 
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
-        nodes.map((n) => ({
-          title:
-            n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
-              ?.innerText?.trim() || "",
-          link:
-            n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
-            n.querySelector("a[href*='/itm/']")?.href ||
-            "",
-          price:
-            n.querySelector(
-              ".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price"
-            )?.innerText?.trim() || "",
-          image:
-            n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")
-              ?.src || "",
-          postedDate:
-            n.querySelector(
-              ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__title--tagblock .POSITIVE, .s-item__subtitle"
-            )?.innerText?.trim() || "",
-        }))
+        nodes
+          .map((n) => {
+            const title =
+              n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
+                ?.innerText?.trim() || "";
+
+            // 🚫 Skip Sponsored / ShopOnEbay / No Title Cards
+            const lower = title.toLowerCase();
+            if (
+              !title ||
+              lower.includes("shop on ebay") ||
+              lower.includes("sponsored") ||
+              lower.includes("visit store")
+            ) {
+              return null;
+            }
+
+            const link =
+              n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
+              n.querySelector("a[href*='/itm/']")?.href ||
+              "";
+
+            if (!link) return null;
+
+            return {
+              title,
+              link: link.split("?")[0],
+              price:
+                n.querySelector(
+                  ".s-card__price, .s-item__price, .s-item__detail--primary .s-item__price"
+                )?.innerText?.trim() || "",
+              image:
+                n.querySelector("img.s-card__image, img.s-item__image-img, img.s-item__image")
+                  ?.src || "",
+              postedDate:
+                n.querySelector(
+                  ".su-card-container__attributes__secondary .su-styled-text.secondary.bold.large, .s-item__listingDate, .s-item__subtitle"
+                )?.innerText?.trim() || "",
+            };
+          })
+          .filter(Boolean)
       );
 
       if (!pageCards || pageCards.length === 0) console.log("📦 Found 0 products on page");

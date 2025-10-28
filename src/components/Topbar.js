@@ -1,16 +1,27 @@
-export default function Topbar() {
-  const date = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+"use client";
+import { Menu } from "lucide-react";
 
+export default function Topbar({ setMobileMenu }) {
   return (
-    <header className="fixed top-0 left-64 right-0 z-50 bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200 p-5 flex justify-between items-center">
-      <h2 className="text-[22px] font-semibold text-gray-800 tracking-tight">
-           Welcome To The Dashboard 
-      </h2>
-      <span className="text-sm text-gray-500">{date}</span>
-    </header>
+    <div className="flex items-center justify-between h-[70px] px-4 sm:px-6">
+      {/* Mobile menu button */}
+      <button
+        onClick={() => setMobileMenu(true)}
+        className="lg:hidden p-2 rounded-md hover:bg-gray-100"
+      >
+        <Menu size={24} />
+      </button>
+
+      <h1 className="text-lg font-semibold">Dashboard</h1>
+
+      {/* Example right section */}
+      <div className="flex items-center gap-3">
+        <img
+          src="/user.png"
+          alt="user"
+          className="w-8 h-8 rounded-full border"
+        />
+      </div>
+    </div>
   );
 }
