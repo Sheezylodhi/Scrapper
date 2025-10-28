@@ -182,7 +182,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Results Table + Filter Menu */}
+      {/* Results Table + Filter */}
       {loading ? (
         <div className="mt-10 text-lg text-gray-500">⏳ Scraping... please wait.</div>
       ) : filteredData.length === 0 ? (
