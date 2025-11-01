@@ -71,7 +71,7 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-  const browser = await puppeteer.launch({
+const browser = await puppeteer.launch({
  executablePath: '/usr/bin/google-chrome-stable',
     headless: true,
     args: [
@@ -92,11 +92,28 @@ export async function scrapeEbayCars(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
 
+  // ✅ Detect total pages first (instead of relying only on maxPages)
+  let totalPages = 1;
+  try {
+    await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+    await randomDelay(800, 1500);
+    totalPages = await page.$$eval("a[href*='_pgn='], a.pagination__item", (els) => {
+      const nums = els.map((e) => parseInt(e.textContent.trim())).filter((n) => !isNaN(n));
+      return nums.length ? Math.max(...nums) : 1;
+    });
+  } catch {
+    totalPages = 1;
+  }
+
+  if (totalPages > maxPages) totalPages = maxPages;
+  console.log(`🧭 Total detected pages: ${totalPages}`);
+
   let currentPage = 1;
   const collected = [];
   let stopPaging = false;
 
-  while (!stopPaging && currentPage <= maxPages) {
+  // ✅ Loop only through detected totalPages
+  while (!stopPaging && currentPage <= totalPages) {
     const urlObj = new URL(searchUrl);
     urlObj.searchParams.set("_pgn", currentPage);
     const pageUrl = urlObj.toString();
@@ -154,8 +171,12 @@ export async function scrapeEbayCars(
           .filter(Boolean)
       );
 
-      if (!pageCards || pageCards.length === 0) console.log("📦 Found 0 products on page");
-      else console.log(`📦 Found ${pageCards.length} products on page`);
+      if (!pageCards || pageCards.length === 0) {
+        console.log("📦 Found 0 products on page");
+        stopPaging = true; // ✅ Stop if no listings found
+      } else {
+        console.log(`📦 Found ${pageCards.length} products on page`);
+      }
 
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
@@ -197,6 +218,7 @@ export async function scrapeEbayCars(
 
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
+  // 🔹 Rest of your original detail-fetching logic below (unchanged)
   const detailed = [];
   const concurrency = 6;
   const retryLimit = 3;
@@ -241,7 +263,8 @@ export async function scrapeEbayCars(
             .$$eval(
               [
                 "#viTabs_0_is, #viTabs_0_cnt, #desc_ifr, #itemDescription, .item-desc, #vi-desc, .product-desc",
-              ].join(","), (nodes) => nodes.map((n) => n.innerText || "").join("\n")
+              ].join(","),
+              (nodes) => nodes.map((n) => n.innerText || "").join("\n")
             )
             .catch(() => "")) || "";
       }
@@ -301,7 +324,9 @@ export async function scrapeEbayCars(
       };
     } catch (err) {
       if (pageDetail && !pageDetail.isClosed()) {
-        try { await pageDetail.close(); } catch {}
+        try {
+          await pageDetail.close();
+        } catch {}
       }
 
       console.warn(`⚠️ Detail Error (attempt ${attempt}) for ${item.productLink}: ${err.message}`);
@@ -328,7 +353,9 @@ export async function scrapeEbayCars(
   for (let i = 0; i < total; i += concurrency) {
     const batch = collected.slice(i, i + concurrency);
 
-    console.log(`\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`);
+    console.log(
+      `\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`
+    );
 
     const promises = batch.map((item, idx) =>
       fetchDetailWithRetry(item).then((res) => {

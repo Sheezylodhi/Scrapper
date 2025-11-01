@@ -9,7 +9,10 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const SITES = [
   { name: "Please select site", url: "" },
-  { name: "eBay", url: "https://www.ebay.com/sch/i.html?_nkw=cars+trucks&_sacat=6001&_from=R40&_sop=10" },
+  { name: "eBay", url: "https://www.ebay.com/sch/i.html?_dcat=6001&_fsrp=1&_from=R40&_nkw=cars+trucks&_sacat=6001&For%2520Sale%2520By=Private%2520Seller&_sop=10" },
+  { name: "Hemming", url: "https://www.hemmings.com/classifieds/cars-for-sale?adtype=cars-for-sale&seller_type[]=private_seller&q=cars&per_page=30&sort_by=relevant_date&order=DESC&members_preview=true" },
+  { name: "Craigslist (Chicago)", url: "https://chicago.craigslist.org/search/cta?purveyor=owner#search=2" }
+
 ];
 
 export default function Home() {
@@ -56,6 +59,8 @@ export default function Home() {
           keyword,
           fromDate: fromDateTime ? fromDateTime.toISOString() : null,
           toDate: toDateTime ? toDateTime.toISOString() : null,
+          siteName: selectedSite,
+
         }),
       });
       const json = await res.json();
