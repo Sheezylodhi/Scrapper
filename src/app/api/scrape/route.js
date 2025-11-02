@@ -25,7 +25,10 @@ export async function POST(req) {
       results = await scrapeHemmingCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
     } else if (siteName === "Craigslist (Chicago)") {
       results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
-    } else {
+    }else if (siteName === "Craigslist (NewYork)") {
+      results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
+    }
+     else {
       return NextResponse.json({ error: "Unsupported site" }, { status: 400 });
     }
 
