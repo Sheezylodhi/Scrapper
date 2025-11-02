@@ -1,11 +1,18 @@
 // file: lib/scraperCraigslistStealth.js
-import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
-// use stealth plugin
-puppeteer.use(StealthPlugin());
+// ✅ Dynamic imports for Next.js build safety
+let puppeteer;
+let StealthPlugin;
 
-// Set VPS timezone (keeps your existing timezone logic)
+if (typeof window === "undefined") {
+  const puppeteerExtra = await import("puppeteer-extra");
+  const stealth = await import("puppeteer-extra-plugin-stealth");
+  puppeteer = puppeteerExtra.default;
+  StealthPlugin = stealth.default;
+  puppeteer.use(StealthPlugin());
+}
+
+// ✅ Set VPS timezone
 process.env.TZ = "Asia/Karachi";
 
 // ---------- Helpers / Utils ----------
@@ -17,7 +24,6 @@ const WORD_TO_DIGIT = {
   five: "5", six: "6", seven: "7", eight: "8", nine: "9",
 };
 
-// conservative mapping of 'o' near digits -> 0
 function mapSingleLettersToDigits(s) {
   return s.replace(/(?<=\d)[oO](?=\d)/g, "0")
           .replace(/(?<=\s)[oO](?=\s)/g, "0")
@@ -25,7 +31,6 @@ function mapSingleLettersToDigits(s) {
           .replace(/(?<=\d)[oO](?=\s)/g, "0");
 }
 
-// Normalize mixed phone chunk (keeps hyphens/spaces temporarily)
 function normalizeMixedPhoneChunk(text) {
   if (!text) return null;
   let s = String(text).toLowerCase();
@@ -34,7 +39,6 @@ function normalizeMixedPhoneChunk(text) {
     s = s.replace(new RegExp(`\\b${w}\\b`, "gi"), d);
   }
   s = mapSingleLettersToDigits(s);
-  // remove brackets, dots, slashes, commas, colons
   s = s.replace(/[().,\/:]/g, " ");
   s = s.replace(/\s+/g, " ").trim();
   return s;
@@ -62,7 +66,6 @@ function hasNonPhoneContext(s) {
 function extractPhoneFromSentenceCandidate(s) {
   if (!s) return null;
   const normalized = normalizeMixedPhoneChunk(s) || "";
-  // keep hyphens and digits for now
   const digitsOnly = normalized.replace(/[^0-9]/g, "");
   if (digitsOnly.length >= 7 && digitsOnly.length <= 15) return formatUSPhone(digitsOnly);
   return null;
@@ -70,15 +73,12 @@ function extractPhoneFromSentenceCandidate(s) {
 
 function extractPhoneFromDescription(desc) {
   if (!desc) return null;
-
-  // split lines and sentences
   const lines = desc.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const sentParts = [];
   for (const l of lines) {
     sentParts.push(...l.split(/[.?!;]/).map(x => x.trim()).filter(Boolean));
   }
 
-  // 1) prefer sentences with contact cue and not price/VIN-only
   for (const s of sentParts) {
     if (hasContactCue(s)) {
       if (hasNonPhoneContext(s) && !/\b(contact|call|text)\b/i.test(s)) continue;
@@ -87,17 +87,14 @@ function extractPhoneFromDescription(desc) {
     }
   }
 
-  // 2) fallback: any candidate not in VIN/price context
   for (const s of sentParts) {
     if (hasNonPhoneContext(s)) continue;
     const n = extractPhoneFromSentenceCandidate(s);
     if (n) return n;
   }
 
-  // 3) last fallback: standard numeric regex (US-like)
   const fallback = desc.match(/(\+?\d{1,2}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
   if (fallback) return formatUSPhone(fallback[0]);
-
   return null;
 }
 
@@ -131,7 +128,7 @@ export async function scrapeCraigslist(searchUrl, keyword = "", fromDatePK = nul
   const toDate = toDatePK ? parsePKDateToUTC(toDatePK) : null;
 
   const browser = await puppeteer.launch({
-    executablePath: "/usr/bin/google-chrome-stable", // change if your chrome is elsewhere
+    executablePath: "/usr/bin/google-chrome-stable",
     headless: true,
     args: [
       "--no-sandbox",
@@ -148,7 +145,6 @@ export async function scrapeCraigslist(searchUrl, keyword = "", fromDatePK = nul
   });
 
   const page = await browser.newPage();
-  // small stealth tweaks
   await page.setViewport({ width: 1366, height: 768 });
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -161,7 +157,6 @@ export async function scrapeCraigslist(searchUrl, keyword = "", fromDatePK = nul
     await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
     await randomDelay();
 
-    // wait for listing nodes (if blocked these will be absent)
     await page.waitForSelector("li.cl-static-search-result, li.result-row", { timeout: 20000 }).catch(() => null);
 
     const cards = await page.$$eval("li.cl-static-search-result, li.result-row", nodes =>
