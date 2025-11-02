@@ -1,16 +1,16 @@
 // file: lib/scraperCraigslistStealth.js
 
-// ✅ Dynamic imports for Next.js build safety
-let puppeteer;
-let StealthPlugin;
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
-if (typeof window === "undefined") {
-  const puppeteerExtra = await import("puppeteer-extra");
-  const stealth = await import("puppeteer-extra-plugin-stealth");
-  puppeteer = puppeteerExtra.default;
-  StealthPlugin = stealth.default;
-  puppeteer.use(StealthPlugin());
-}
+// 🧠 Disable broken evasion modules (chrome.app etc)
+const stealth = StealthPlugin();
+stealth.enabledEvasions.delete("chrome.app");
+stealth.enabledEvasions.delete("chrome.runtime");
+stealth.enabledEvasions.delete("iframe.contentWindow");
+stealth.enabledEvasions.delete("media.codecs");
+
+puppeteer.use(stealth);
 
 // ✅ Set VPS timezone
 process.env.TZ = "Asia/Karachi";
