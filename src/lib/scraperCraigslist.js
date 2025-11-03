@@ -181,13 +181,13 @@ export async function scrapeCraigslist(searchUrl, keyword = "", fromDatePK = nul
   console.log("🕒 Starting scrape for: Craigslist (Chicago)");
   console.log("✅ Scrape params:", { searchUrl, keyword, fromDatePK, toDatePK });
 
-  if (typeof searchUrl === "string" && searchUrl.includes("#")) searchUrl = searchUrl.split("#")[0];
+
 
   const fromDate = fromDatePK ? parsePKDateToUTC(fromDatePK) : null;
   const toDate = toDatePK ? parsePKDateToUTC(toDatePK) : null;
 
   const browser = await puppeteer.launch({
-    executablePath: "/usr/bin/google-chrome-stable",
+ executablePath: '/usr/bin/google-chrome-stable',
     headless: true,
     args: [
       "--no-sandbox",
