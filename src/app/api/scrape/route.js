@@ -27,7 +27,11 @@ export async function POST(req) {
       results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
     }else if (siteName === "Craigslist (NewYork)") {
       results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
-    }
+    } else  if (siteName === "eBay (UK)") {
+      results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
+    }  else  if (siteName === "eBay (Aus)") {
+      results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
+    } 
      else {
       return NextResponse.json({ error: "Unsupported site" }, { status: 400 });
     }

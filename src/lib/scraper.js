@@ -71,20 +71,19 @@ export async function scrapeEbayCars(
 
   console.log("✅ Scrape params:", { searchUrl, maxPages, keyword, from, to, siteName });
 
-const browser = await puppeteer.launch({
- executablePath: '/usr/bin/google-chrome-stable',
+  const browser = await puppeteer.launch({
     headless: true,
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-zygote',
-      '--single-process',
-      '--disable-accelerated-2d-canvas',
-      '--disable-software-rasterizer'
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-zygote",
+      "--single-process",
+      "--disable-accelerated-2d-canvas",
+      "--disable-software-rasterizer",
     ],
-    ignoreHTTPSErrors: true
+    ignoreHTTPSErrors: true,
   });
 
   const page = await browser.newPage();
@@ -92,64 +91,103 @@ const browser = await puppeteer.launch({
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
 
-  // ✅ Detect total pages first (instead of relying only on maxPages)
-  let totalPages = 1;
+  // ✅ Detect total pages first (best-effort)
+  let detectedTotalPages = 1;
   try {
     await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
     await randomDelay(800, 1500);
-    totalPages = await page.$$eval("a[href*='_pgn='], a.pagination__item", (els) => {
+    detectedTotalPages = await page.$$eval("a[href*='_pgn='], a.pagination__item", (els) => {
       const nums = els.map((e) => parseInt(e.textContent.trim())).filter((n) => !isNaN(n));
       return nums.length ? Math.max(...nums) : 1;
     });
   } catch {
-    totalPages = 1;
+    detectedTotalPages = 1;
   }
 
-  if (totalPages > maxPages) totalPages = maxPages;
-  console.log(`🧭 Total detected pages: ${totalPages}`);
+  // We'll still respect user-supplied maxPages (to avoid infinite scraping)
+  if (detectedTotalPages > maxPages) detectedTotalPages = maxPages;
+  console.log(`🧭 Detected pages (best-effort): ${detectedTotalPages} — but scraper will follow "Next" links up to maxPages=${maxPages}`);
 
   let currentPage = 1;
   const collected = [];
   let stopPaging = false;
 
-  // ✅ Loop only through detected totalPages
-  while (!stopPaging && currentPage <= totalPages) {
-    const urlObj = new URL(searchUrl);
-    urlObj.searchParams.set("_pgn", currentPage);
-    const pageUrl = urlObj.toString();
+  // Start from the original URL
+  let nextPageUrl = searchUrl;
+
+  while (!stopPaging && currentPage <= maxPages) {
+    const pageUrl = nextPageUrl.includes("_pgn=")
+      ? nextPageUrl.replace(/_pgn=\d+/, `_pgn=${currentPage}`)
+      : (currentPage === 1 ? nextPageUrl : `${nextPageUrl}${nextPageUrl.includes("?") ? "&" : "?"}_pgn=${currentPage}`);
+
     console.log(`\n🌐 Visiting Page ${currentPage}: ${pageUrl}`);
 
     try {
-      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+      // ✅ Robust goto with small retry loop to handle ERR_ABORTED
+      let success = false;
+      for (let attempt = 1; attempt <= 3 && !success; attempt++) {
+        try {
+          await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+          success = true;
+        } catch (e) {
+          console.warn(`⚠️ Retry ${attempt} for ${pageUrl} due to ${e.message}`);
+          await randomDelay(800, 1500);
+        }
+      }
+      if (!success) {
+        console.warn(`❌ Skipping page ${currentPage} after 3 failed attempts`);
+        currentPage++;
+        // try to continue to next page via next link fallback
+        // attempt to find next link on the current (failed) page: we skip that and continue loop
+        continue;
+      }
+
       await randomDelay();
 
       try {
         await page.waitForSelector("li.s-item, li.s-card", { timeout: 10000 });
       } catch {}
 
+      // scrape cards on current page
       const pageCards = await page.$$eval("li.s-item, li.s-card", (nodes) =>
         nodes
           .map((n) => {
-            const title =
-              n.querySelector(".s-card__title span, .s-item__title, .s-item__title span")
-                ?.innerText?.trim() || "";
+            // ✅ FIXED TITLE EXTRACTION (removes “New Listing” and "Opens in a new window or tab" etc.)
+            let title = "";
+            const titleNode = n.querySelector(".s-card__title");
+            if (titleNode) {
+              const newListing = titleNode.querySelector(".s-card__new-listing");
+              if (newListing) newListing.remove();
 
-            // 🚫 Skip Sponsored / ShopOnEbay / No Title Cards
+              const clippedNodes = titleNode.querySelectorAll(".clipped, .sr-only, .clipped-text");
+              clippedNodes.forEach((el) => el.remove());
+
+              const spans = titleNode.querySelectorAll("span");
+              spans.forEach((s) => {
+                const txt = (s.innerText || "").trim();
+                if (/Opens in a new window/i.test(txt) || /Opens in a new window or tab/i.test(txt))
+                  s.remove();
+              });
+
+              title = titleNode.innerText.trim().replace(/\s*Opens in a new window( or tab)?/i, "").trim();
+            } else {
+              title =
+                n.querySelector(".s-item__title span, .s-item__title")?.innerText?.trim() || "";
+            }
+
             const lower = title.toLowerCase();
             if (
               !title ||
               lower.includes("shop on ebay") ||
               lower.includes("sponsored") ||
               lower.includes("visit store")
-            ) {
+            )
               return null;
-            }
 
             const link =
               n.querySelector("a.su-link, a.s-item__link, a[href*='/itm/']")?.href ||
               n.querySelector("a[href*='/itm/']")?.href ||
               "";
-
             if (!link) return null;
 
             return {
@@ -173,40 +211,92 @@ const browser = await puppeteer.launch({
 
       if (!pageCards || pageCards.length === 0) {
         console.log("📦 Found 0 products on page");
-        stopPaging = true; // ✅ Stop if no listings found
+        // If page empty, try to continue to next page via next link (below) — but mark if nothing found
       } else {
         console.log(`📦 Found ${pageCards.length} products on page`);
       }
 
+      // process cards
       for (const card of pageCards) {
         const d = parseCardDate(card.postedDate);
         console.log("Parsed date:", d, "Original:", card.postedDate);
 
+        let isValid = true;
+
+        // ✅ Date filter
         if (useDate && d) {
           if (d < from) {
             console.log(`⏹ Stopping: found postedDate ${card.postedDate} < fromDate`);
             stopPaging = true;
             break;
           }
-          if (d > to) continue;
+          if (d > to) isValid = false;
         }
 
-        if (useKeyword && (!card.title || !card.title.toLowerCase().includes(keyword.toLowerCase())))
-          continue;
+        // ✅ Keyword filter (only if keyword is provided)
+        if (useKeyword) {
+          const normalizeText = (t) =>
+            t
+              ?.toLowerCase()
+              .normalize("NFKD")
+              .replace(/[^\w\s-]/g, "")
+              .replace(/\s+/g, " ")
+              .trim() || "";
+          const cleanTitle = normalizeText(card.title);
+          const cleanKeyword = normalizeText(keyword);
+          if (!cleanTitle.includes(cleanKeyword)) isValid = false;
+        }
 
-        if (!card.link) continue;
+        if (!isValid) continue;
 
         collected.push({
-          title: card.title || "",
-          productLink: card.link.split("?")[0],
-          price: card.price || "",
-          image: card.image || "",
-          postedDate: card.postedDate || "",
+          title: card.title,
+          productLink: card.link,
+          price: card.price,
+          image: card.image,
+          postedDate: card.postedDate,
           siteName,
         });
       }
 
       console.log(`📝 Page ${currentPage} collected total so far: ${collected.length}`);
+
+      // If we've hit the fromDate stop condition, break before trying next
+      if (stopPaging) break;
+
+      // Try to find a "Next" link on the page (more reliable than counting pages)
+      const nextHref = await page.evaluate(() => {
+        const sel =
+          'a[aria-label*="Next"], a.pagination__next, a[rel="next"], a[aria-label="Next page"], .pagination__next a';
+        const el = document.querySelector(sel);
+        if (el) return el.href || el.getAttribute("href");
+        // fallback: try link with text "Next" or ">"
+        const anchors = Array.from(document.querySelectorAll("a"));
+        for (const a of anchors) {
+          const txt = (a.innerText || "").trim();
+          if (/^\s*Next\s*$/i.test(txt) || /^\s*>\s*$/.test(txt) || /Next\s*page/i.test(txt)) {
+            return a.href || a.getAttribute("href");
+          }
+        }
+        return null;
+      }).catch(() => null);
+
+      // Prepare nextPageUrl:
+      if (nextHref && typeof nextHref === "string" && nextHref.length > 5) {
+        // if nextHref is relative, make absolute using current location
+        if (nextHref.startsWith("/")) {
+          const u = new URL(pageUrl);
+          nextPageUrl = `${u.protocol}//${u.host}${nextHref}`;
+        } else {
+          nextPageUrl = nextHref;
+        }
+      } else {
+        // fallback: build URL by increasing _pgn param (some eBay search pages use _pgn)
+        // keep same base as original searchUrl so query stays identical — use original searchUrl as base
+        // but ensure we don't append repeated _pgn parts
+        nextPageUrl = searchUrl;
+      }
+
       currentPage++;
       await randomDelay();
     } catch (err) {
@@ -218,7 +308,7 @@ const browser = await puppeteer.launch({
 
   console.log(`\n🌐 Total candidates collected: ${collected.length}`);
 
-  // 🔹 Rest of your original detail-fetching logic below (unchanged)
+  // 🔹 Seller detail logic untouched (same as your version)
   const detailed = [];
   const concurrency = 6;
   const retryLimit = 3;
@@ -350,11 +440,11 @@ const browser = await puppeteer.launch({
 
   const total = collected.length;
 
-  for (let i = 0; i < total; i += concurrency) {
-    const batch = collected.slice(i, i + concurrency);
+  for (let i = 0; i < total; i += 6) {
+    const batch = collected.slice(i, i + 6);
 
     console.log(
-      `\n🔁 Processing batch ${Math.floor(i / concurrency) + 1} (items ${i + 1}..${i + batch.length})`
+      `\n🔁 Processing batch ${Math.floor(i / 6) + 1} (items ${i + 1}..${i + batch.length})`
     );
 
     const promises = batch.map((item, idx) =>
