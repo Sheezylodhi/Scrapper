@@ -105,7 +105,7 @@ export default function ViewJobs() {
     setPageIndex(1);
   };
 
-  // --- Delete ---
+  // --- Delete single ---
   const handleDelete = async (id) => {
     if (!confirm("Delete this record?")) return;
     try {
@@ -115,6 +115,63 @@ export default function ViewJobs() {
     } catch (err) {
       console.error(err);
       alert("Failed to delete");
+    }
+  };
+
+  // --- Delete All / Delete Filtered (bulk client-side delete by id) ---
+  const handleDeleteBulk = async ({ onlyFiltered = false } = {}) => {
+    const itemsToDelete = onlyFiltered ? filtered : data;
+    if (!itemsToDelete || itemsToDelete.length === 0) {
+      return alert("No records found to delete.");
+    }
+
+    const modeLabel = viewMode === "temporary" ? "temporary" : "permanent";
+    const count = itemsToDelete.length;
+    const confirmMsg = onlyFiltered
+      ? `Delete ${count} visible (filtered) record(s) from ${modeLabel}? This cannot be undone.`
+      : `Delete ALL ${count} record(s) from ${modeLabel}? This cannot be undone.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    setLoading(true);
+    try {
+      // Delete each by id (backend currently supports /api/listing/:id and /api/permanent/:id)
+      const endpointBase = viewMode === "temporary" ? "/api/listing" : "/api/permanent";
+
+      // Collect ids (filter out missing ids)
+      const ids = itemsToDelete.map((it) => it._id).filter(Boolean);
+      // Fire deletions in parallel
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`${endpointBase}/${id}`, {
+            method: "DELETE",
+          }).catch((e) => {
+            console.error("delete error for id", id, e);
+            // swallow per-item error to continue others
+          })
+        )
+      );
+
+      // Update UI to remove deleted items
+      if (onlyFiltered) {
+        // remove filtered items from both data and filtered
+        const idSet = new Set(ids);
+        setData((prev) => prev.filter((d) => !idSet.has(d._id)));
+        setFiltered((prev) => prev.filter((d) => !idSet.has(d._id)));
+      } else {
+        // deleted all in this mode -> clear arrays
+        setData([]);
+        setFiltered([]);
+      }
+
+      alert(`Deleted ${ids.length} record(s).`);
+      // refresh permanent links if needed
+      await fetchPermanentLinks();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete records.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -206,10 +263,12 @@ export default function ViewJobs() {
     }
   };
 
-  // --- Export to Excel ---
-  const exportToExcel = (exportData = filtered, filename = "data.xlsx") => {
-    if (!exportData || exportData.length === 0) return alert("No data to export.");
-    const excelData = exportData.map((item, index) => ({
+  // --- Export to Excel --- (changed: default exports current grid view page)
+  // now default `exportToExcel()` will export the CURRENT visible grid (current page slice)
+  const exportToExcel = (exportData = null, filename = "data.xlsx") => {
+    const exportSource = exportData ?? current; // if caller passes explicit array, use it; otherwise export current page rows
+    if (!exportSource || exportSource.length === 0) return alert("No data to export.");
+    const excelData = exportSource.map((item, index) => ({
       "#": index + 1,
       Title: item.title,
       Price: item.price,
@@ -236,6 +295,14 @@ export default function ViewJobs() {
   const closeModal = () => {
     setSelectedItem(null);
     setModalOpen(false);
+  };
+
+  // --- Refresh (clear filters & reload data) ---
+  const handleRefresh = async () => {
+    setKeyword("");
+    setFrom(null);
+    setTo(null);
+    await fetchData();
   };
 
   // --- Pagination ---
@@ -296,10 +363,38 @@ export default function ViewJobs() {
 
         <div className="flex gap-2">
           <button onClick={handleFilter} className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-900">Filter</button>
+
+          {/* Export now exports current grid page (current variable) */}
           <button onClick={() => exportToExcel()} className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700">Export Excel</button>
+
           {viewMode === "temporary" && filtered.length > 0 && (
             <button onClick={handleSaveAllFiltered} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Save All Filtered</button>
           )}
+
+          {/* NEW: Delete buttons and Refresh */}
+          <button
+            onClick={() => handleDeleteBulk({ onlyFiltered: false })}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+            title="Delete ALL records in current mode"
+          >
+            Delete All
+          </button>
+
+          <button
+            onClick={() => handleDeleteBulk({ onlyFiltered: true })}
+            className="bg-red-400 text-white px-4 py-2 rounded-lg hover:bg-red-500"
+            title="Delete only currently filtered (visible) records"
+          >
+            Delete Filtered
+          </button>
+
+          <button
+            onClick={handleRefresh}
+            className="bg-gray-200 text-black px-4 py-2 rounded-lg hover:bg-gray-300"
+            title="Clear filters & refresh"
+          >
+            Refresh
+          </button>
         </div>
       </div>
 
