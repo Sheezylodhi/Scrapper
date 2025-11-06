@@ -9,13 +9,12 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const SITES = [
   { name: "Please select site", url: "" },
-  { name: "eBay", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_fcid=1" },
+  { name: "eBay (US)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_fcid=1" },
   { name: "Hemming", url: "https://www.hemmings.com/classifieds/cars-for-sale?adtype=cars-for-sale&seller_type[]=private_seller&q=cars&per_page=30&sort_by=relevant_date&order=DESC&members_preview=true" },
   { name: "Craigslist (Chicago)", url: "https://chicago.craigslist.org/search/cta?purveyor=owner" },
   { name: "Craigslist (NewYork)", url: "https://newyork.craigslist.org/search/cta?purveyor=owner" },
-    { name: "eBay (UK)", url: "https://www.ebay.com/sch/i.html?_oaa=1&_dcat=6001&_fsrp=1&rt=nc&_from=R40&_nkw=cars+trucks&_sacat=6001&_fcid=3&For%2520Sale%2520By=Private%2520Seller" },
-     { name: "eBay (Aus)", url: "https://www.ebay.com/sch/i.html?_oaa=1&_dcat=6001&_fsrp=1&rt=nc&_from=R40&_nkw=cars+trucks&_sacat=6001&_fcid=3&For%2520Sale%2520By=Private%2520Seller" },
-
+  { name: "eBay (UK)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=3" },
+  { name: "eBay (Aus)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=15" },
 ];
 
 export default function Home() {
@@ -63,7 +62,6 @@ export default function Home() {
           fromDate: fromDateTime ? fromDateTime.toISOString() : null,
           toDate: toDateTime ? toDateTime.toISOString() : null,
           siteName: selectedSite,
-
         }),
       });
       const json = await res.json();
@@ -76,7 +74,8 @@ export default function Home() {
     }
   };
 
-  const exportToExcel = (exportData = data, filename = "scraped_data.xlsx") => {
+  // ✅ Export sirf filtered data ka
+  const exportToExcel = (exportData, filename = "scraped_data.xlsx") => {
     if (!exportData || exportData.length === 0) return;
     const excelData = exportData.map((item, index) => ({
       "#": index + 1,
@@ -181,15 +180,15 @@ export default function Home() {
             {loading ? "Scraping..." : "Start Scraping"}
           </button>
 
+          {/* ✅ Export sirf filtered data */}
           <button
-            onClick={() => exportToExcel()}
+            onClick={() => exportToExcel(filteredData)}
             className="px-6 py-2 rounded-lg text-white font-medium bg-green-600 hover:bg-green-700"
           >
-            Export All to Excel
+            Export to Excel
           </button>
         </div>
       </div>
-
       {/* Results Table + Filter */}
       {loading ? (
         <div className="mt-10 text-lg text-gray-500">⏳ Scraping... please wait.</div>

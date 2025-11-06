@@ -19,7 +19,7 @@ export async function POST(req) {
 
     let results = [];
 
-    if (siteName === "eBay") {
+    if (siteName === "eBay (US)") {
       results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
     } else if (siteName === "Hemming") {
       results = await scrapeHemmingCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
