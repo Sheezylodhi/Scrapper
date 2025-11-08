@@ -15,6 +15,7 @@ const SITES = [
   { name: "Craigslist (NewYork)", url: "https://newyork.craigslist.org/search/cta?purveyor=owner" },
   { name: "eBay (UK)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=3" },
   { name: "eBay (Aus)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=15" },
+   { name: "Karkis", url: "https://karkiosk.com/cars-for-sale" },
 ];
 
 export default function Home() {

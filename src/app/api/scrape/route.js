@@ -5,6 +5,8 @@ import Listing from "@/lib/models/Listing";
 import { scrapeEbayCars } from "@/lib/scraper";
 import { scrapeHemmingCars } from "@/lib/hemmingScraper";
 import { scrapeCraigslist } from "@/lib/scraperCraigslist";
+import { scrapeKarkisCars } from "@/lib/scraperKarkis";
+
 
 export async function POST(req) {
   try {
@@ -32,6 +34,10 @@ export async function POST(req) {
     }  else  if (siteName === "eBay (Aus)") {
       results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
     } 
+   else if (siteName === "Karkis") {
+  results = await scrapeKarkisCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
+}
+
      else {
       return NextResponse.json({ error: "Unsupported site" }, { status: 400 });
     }
