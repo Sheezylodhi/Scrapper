@@ -3,17 +3,14 @@ import puppeteer from "puppeteer";
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
 function randomDelay(min = 400, max = 1000) {
   return delay(Math.floor(Math.random() * (max - min + 1)) + min);
 }
-
 function extractFirstMatch(text, regex) {
   if (!text) return null;
   const m = text.match(regex);
   return m ? m[0] : null;
 }
-
 function isWithinDateRange(dateText, fromDate, toDate) {
   if (!dateText) return true;
   const d = new Date(dateText);
@@ -28,7 +25,7 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
   let results = [];
 
   const browser = await puppeteer.launch({
-     executablePath: '/usr/bin/google-chrome-stable',
+    executablePath: "/usr/bin/google-chrome-stable",
     headless: true,
     args: [
       "--no-sandbox",
@@ -48,12 +45,14 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
   let stopScraping = false;
 
   for (let pageNum = 1; pageNum <= maxPages && !stopScraping; pageNum++) {
-    const pagedUrl = `${searchUrl}?page=${pageNum}`;
+    // ✅ Pagination URL jese website use karti hai
+    const pagedUrl = pageNum === 1 ? searchUrl : `${searchUrl}#page-${pageNum}`;
     console.log(`📦 Navigating to Page ${pageNum}: ${pagedUrl}`);
 
     await page.goto(pagedUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
     await randomDelay(800, 1500);
 
+    // ✅ Extract all listings on current page
     const cards = await page.$$eval(".featured-car", (nodes) =>
       nodes.map((n) => {
         const link = n.querySelector("a.product-img")?.href || "";
@@ -79,11 +78,12 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
 
     for (let i = 0; i < cards.length; i++) {
       const c = cards[i];
+      if (!c.link) continue;
 
-      // ✅ Keyword filter
+      // ✅ Keyword filter (same as eBay)
       if (keyword && !c.title.toLowerCase().includes(keyword.toLowerCase())) continue;
 
-      // ✅ Date filter (skip older)
+      // ✅ Date filter (same as eBay)
       if (fromDate && !isWithinDateRange(c.postedDate, fromDate, toDate)) {
         console.log(`🕒 Reached older date (${c.postedDate}) → stopping.`);
         stopScraping = true;
@@ -99,15 +99,17 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
         const description = await detailPage.$eval("body", (b) => b.innerText).catch(() => "");
 
         const phone =
-          extractFirstMatch(description, /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g) ||
-          null;
+          extractFirstMatch(
+            description,
+            /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g
+          ) || null;
         const email =
           extractFirstMatch(description, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
 
         const sellerName =
-          (await detailPage.$eval(".kk-user-name, .user-name, .seller-name", (el) =>
-            el.innerText.trim()
-          ).catch(() => null)) || "Private Seller";
+          (await detailPage
+            .$eval(".kk-user-name, .user-name, .seller-name", (el) => el.innerText.trim())
+            .catch(() => null)) || "Private Seller";
 
         results.push({
           title: c.title,
