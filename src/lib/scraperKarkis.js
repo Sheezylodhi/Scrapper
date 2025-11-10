@@ -31,7 +31,7 @@ async function autoScroll(page) {
           clearInterval(timer);
           resolve();
         }
-      }, 300);
+      }, 200);
     });
   });
 }
@@ -39,8 +39,8 @@ async function autoScroll(page) {
 export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDate, toDate, siteName) {
   console.log("🌐 Starting Karkis Scraper:", searchUrl);
   let results = [];
+  const seen = new Set();
   let stopScraping = false;
-  const seenLinks = new Set();
 
   const browser = await puppeteer.launch({
     executablePath: "/usr/bin/google-chrome-stable",
@@ -60,68 +60,56 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
 
-  console.log("📦 Opening first page...");
   await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
   await autoScroll(page);
-  await randomDelay(800, 1200);
+  await randomDelay(1000, 1500);
 
   for (let pageNum = 1; pageNum <= maxPages && !stopScraping; pageNum++) {
-    console.log(`🔹 Processing Page ${pageNum}`);
+    console.log(`🔹 Scraping page ${pageNum}`);
 
-    // wait for listings
-    await page.waitForSelector(".featured-car", { timeout: 30000 }).catch(() => null);
+    await page.waitForSelector("a[href*='details']", { timeout: 40000 }).catch(() => null);
     await autoScroll(page);
-    await randomDelay(600, 1000);
 
-    const cards = await page.$$eval(".featured-car", (nodes) =>
-      nodes.map((n) => {
-        const link = n.querySelector("a.product-img")?.href || "";
-        const title = n.querySelector("h2.cat-head")?.innerText?.trim() || "";
-        const image = n.querySelector("img.img-box")?.src || "";
-        const price = n.querySelector(".kk-price-box .kk-price-num")?.innerText?.trim() || "";
-        const location =
-          n.querySelector(".kk-category-list li:nth-child(1) .cate-title")?.innerText?.trim() || "";
-        const city =
-          n.querySelector(".kk-category-list li:nth-child(2) .cate-title")?.innerText?.trim() || "";
-        const postedDate =
-          n.querySelector(".kk-date, .kk-created, .post-date")?.innerText?.trim() || "";
-        return { title, link, image, price, location, city, postedDate };
+    const cards = await page.$$eval("a[href*='details']", (nodes) =>
+      nodes.map((a) => {
+        const container = a.closest(".col-md-4, .col-sm-6");
+        const title = container?.querySelector("h2,h3,h4")?.innerText?.trim() || "";
+        const price = container?.querySelector("h5, .price, .kk-price-box, strong")?.innerText?.trim() || "";
+        const image = container?.querySelector("img")?.src || "";
+        const meta = container?.innerText || "";
+        const city = (meta.match(/\b[A-Z][a-z]+(?: [A-Z][a-z]+)*$/m) || [])[0] || "";
+        const location = meta.includes("Private Seller") ? "Private Seller" : "";
+        const postedDate = "";
+        return { title, link: a.href, image, price, city, location, postedDate };
       })
     );
 
     console.log(`🧩 Found ${cards.length} listings on page ${pageNum}`);
 
     for (const c of cards) {
-      if (!c.link || seenLinks.has(c.link)) continue;
-      seenLinks.add(c.link);
+      if (!c.link || seen.has(c.link)) continue;
+      seen.add(c.link);
 
-      // ✅ Keyword filter
       if (keyword && !c.title.toLowerCase().includes(keyword.toLowerCase())) continue;
-
-      // ✅ Date filter
       if (fromDate && !isWithinDateRange(c.postedDate, fromDate, toDate)) {
-        console.log(`🕒 Reached older date (${c.postedDate}) → stopping.`);
+        console.log(`🕒 Reached older date (${c.postedDate}) → stopping`);
         stopScraping = true;
         break;
       }
 
       console.log(`🔍 Scraping detail for: ${c.title}`);
-
       try {
-        const detailPage = await browser.newPage();
-        await detailPage.goto(c.link, { waitUntil: "domcontentloaded", timeout: 90000 });
-        await autoScroll(detailPage);
-        await randomDelay(500, 900);
+        const detail = await browser.newPage();
+        await detail.goto(c.link, { waitUntil: "domcontentloaded", timeout: 90000 });
+        await autoScroll(detail);
 
-        const description = await detailPage.$eval("body", (b) => b.innerText).catch(() => "");
+        const desc = await detail.$eval("body", (b) => b.innerText).catch(() => "");
         const phone =
-          extractFirstMatch(description, /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g) ||
-          null;
+          extractFirstMatch(desc, /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g) || null;
         const email =
-          extractFirstMatch(description, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
-
+          extractFirstMatch(desc, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
         const sellerName =
-          (await detailPage
+          (await detail
             .$eval(".kk-user-name, .user-name, .seller-name", (el) => el.innerText.trim())
             .catch(() => null)) || "Private Seller";
 
@@ -133,14 +121,14 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
           sellerName,
           sellerContact: phone,
           sellerEmail: email,
-          description: description.slice(0, 800),
-          location: `${c.location} ${c.city}`.trim(),
+          description: desc.slice(0, 800),
+          location: `${c.city || ""} ${c.location || ""}`.trim(),
           postedDate: c.postedDate,
           siteName: siteName || "Karkiosk",
           scrapedAt: new Date(),
         });
 
-        await detailPage.close();
+        await detail.close();
       } catch (err) {
         console.log(`⚠️ Detail error for ${c.title}: ${err.message}`);
       }
@@ -149,24 +137,15 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
 
     if (stopScraping) break;
 
-    // ✅ Navigate to next hash page
-    const nextHash = `#page-${pageNum + 1}`;
-    const nextPageExists = await page.$(`a[href='${nextHash}']`);
-
-    if (nextPageExists) {
-      console.log(`➡️ Moving to ${nextHash}`);
-      await page.evaluate((hash) => {
-        window.location.hash = hash;
-      }, nextHash);
-      await page.waitForFunction(
-        (h) => window.location.hash === h,
-        {},
-        nextHash
-      );
+    // ✅ Click "Next" for next page
+    const nextBtn = await page.$("a.page-link[aria-label='Next'], a[rel='next']");
+    if (nextBtn) {
+      console.log("➡️ Moving to next page...");
+      await Promise.all([nextBtn.click(), page.waitForNavigation({ waitUntil: "domcontentloaded" })]);
       await autoScroll(page);
-      await randomDelay(1000, 1500);
+      await randomDelay(1200, 1800);
     } else {
-      console.log("🚫 No more pagination — stopping.");
+      console.log("🚫 No next page found — stopping.");
       break;
     }
   }
