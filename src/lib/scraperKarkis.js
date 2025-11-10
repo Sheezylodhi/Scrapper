@@ -19,10 +19,28 @@ function isWithinDateRange(dateText, fromDate, toDate) {
   if (toDate && new Date(d) > new Date(toDate)) return false;
   return true;
 }
+async function autoScroll(page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => {
+      let totalHeight = 0;
+      const distance = 400;
+      const timer = setInterval(() => {
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+        if (totalHeight >= document.body.scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 300);
+    });
+  });
+}
 
 export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDate, toDate, siteName) {
   console.log("🌐 Starting Karkis Scraper:", searchUrl);
   let results = [];
+  let stopScraping = false;
+  const seenLinks = new Set();
 
   const browser = await puppeteer.launch({
     executablePath: "/usr/bin/google-chrome-stable",
@@ -42,17 +60,19 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
   );
 
-  let stopScraping = false;
+  console.log("📦 Opening first page...");
+  await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+  await autoScroll(page);
+  await randomDelay(800, 1200);
 
   for (let pageNum = 1; pageNum <= maxPages && !stopScraping; pageNum++) {
-    // ✅ Pagination URL jese website use karti hai
-    const pagedUrl = pageNum === 1 ? searchUrl : `${searchUrl}#page-${pageNum}`;
-    console.log(`📦 Navigating to Page ${pageNum}: ${pagedUrl}`);
+    console.log(`🔹 Processing Page ${pageNum}`);
 
-    await page.goto(pagedUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
-    await randomDelay(800, 1500);
+    // wait for listings
+    await page.waitForSelector(".featured-car", { timeout: 30000 }).catch(() => null);
+    await autoScroll(page);
+    await randomDelay(600, 1000);
 
-    // ✅ Extract all listings on current page
     const cards = await page.$$eval(".featured-car", (nodes) =>
       nodes.map((n) => {
         const link = n.querySelector("a.product-img")?.href || "";
@@ -69,21 +89,16 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
       })
     );
 
-    console.log(`🧩 Page ${pageNum} → Found ${cards.length} listings`);
+    console.log(`🧩 Found ${cards.length} listings on page ${pageNum}`);
 
-    if (!cards || cards.length === 0) {
-      console.log("🚫 No more listings — stopping.");
-      break;
-    }
+    for (const c of cards) {
+      if (!c.link || seenLinks.has(c.link)) continue;
+      seenLinks.add(c.link);
 
-    for (let i = 0; i < cards.length; i++) {
-      const c = cards[i];
-      if (!c.link) continue;
-
-      // ✅ Keyword filter (same as eBay)
+      // ✅ Keyword filter
       if (keyword && !c.title.toLowerCase().includes(keyword.toLowerCase())) continue;
 
-      // ✅ Date filter (same as eBay)
+      // ✅ Date filter
       if (fromDate && !isWithinDateRange(c.postedDate, fromDate, toDate)) {
         console.log(`🕒 Reached older date (${c.postedDate}) → stopping.`);
         stopScraping = true;
@@ -91,18 +106,17 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
       }
 
       console.log(`🔍 Scraping detail for: ${c.title}`);
+
       try {
         const detailPage = await browser.newPage();
         await detailPage.goto(c.link, { waitUntil: "domcontentloaded", timeout: 90000 });
-        await randomDelay(600, 1200);
+        await autoScroll(detailPage);
+        await randomDelay(500, 900);
 
         const description = await detailPage.$eval("body", (b) => b.innerText).catch(() => "");
-
         const phone =
-          extractFirstMatch(
-            description,
-            /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g
-          ) || null;
+          extractFirstMatch(description, /(\+?\d{1,3})?[\s(.-]*\d{3}[\s).-]*\d{3}[-.\s]?\d{4}/g) ||
+          null;
         const email =
           extractFirstMatch(description, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i) || null;
 
@@ -128,19 +142,36 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
 
         await detailPage.close();
       } catch (err) {
-        console.log(`⚠️ Error scraping detail (${c.title}): ${err.message}`);
+        console.log(`⚠️ Detail error for ${c.title}: ${err.message}`);
       }
-
       await randomDelay(400, 800);
     }
 
-    if (stopScraping) {
-      console.log("🛑 Stopping due to date limit (fromDate reached).");
+    if (stopScraping) break;
+
+    // ✅ Navigate to next hash page
+    const nextHash = `#page-${pageNum + 1}`;
+    const nextPageExists = await page.$(`a[href='${nextHash}']`);
+
+    if (nextPageExists) {
+      console.log(`➡️ Moving to ${nextHash}`);
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, nextHash);
+      await page.waitForFunction(
+        (h) => window.location.hash === h,
+        {},
+        nextHash
+      );
+      await autoScroll(page);
+      await randomDelay(1000, 1500);
+    } else {
+      console.log("🚫 No more pagination — stopping.");
       break;
     }
   }
 
   await browser.close();
-  console.log(`✅ Karkis scrape complete — total ${results.length} listings`);
+  console.log(`✅ DONE — total scraped: ${results.length}`);
   return results;
 }
