@@ -154,13 +154,30 @@ export async function scrapeCraigslist(searchUrl, keyword="", fromDatePK=null, t
   const fromDate = fromDatePK ? parsePKDateToUTC(fromDatePK) : null;
   const toDate = toDatePK ? parsePKDateToUTC(toDatePK) : null;
 
-  const browser = await puppeteer.launch({
-    headless:true,
-    args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--disable-blink-features=AutomationControlled","--window-size=1366,768"],
-    ignoreHTTPSErrors:true
-  });
+ const browser = await puppeteer.launch({
+  executablePath: '/usr/bin/google-chrome-stable',
+  headless: true,
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-blink-features=AutomationControlled",
+    "--window-size=1366,768",
+
+    // ✅ ADDED PROXY
+    "--proxy-server=http://gw.dataimpulse.com:823"
+  ],
+  ignoreHTTPSErrors: true
+});
+
 
   const page = await browser.newPage();
+  await page.authenticate({
+  username: "e9bf167681172eb94b5f",
+  password: "cad2239bc87670bb"
+});
+
   await page.setViewport({width:1366,height:768});
   await page.evaluateOnNewDocument(()=>{Object.defineProperty(navigator,"webdriver",{get:()=>undefined}); Object.defineProperty(navigator,"languages",{get:()=>["en-US","en"]});});
   await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36");
@@ -201,6 +218,10 @@ export async function scrapeCraigslist(searchUrl, keyword="", fromDatePK=null, t
     const detailPagePool = [];
     for(let i=0;i<MAX_CONCURRENT;i++){
       const p = await browser.newPage();
+      await p.authenticate({
+  username: "e9bf167681172eb94b5f",
+  password: "cad2239bc87670bb"
+});
       await p.setViewport({width:1366,height:768});
       await p.setRequestInterception(true);
       p.on("request", req => {
