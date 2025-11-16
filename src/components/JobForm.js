@@ -11,12 +11,23 @@ const SITES = [
   { name: "Please select site", url: "" },
   { name: "eBay (US)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_fcid=1" },
   { name: "Hemming", url: "https://www.hemmings.com/classifieds/cars-for-sale?adtype=cars-for-sale&seller_type[]=private_seller&q=cars&per_page=30&sort_by=relevant_date&order=DESC&members_preview=true" },
-  { name: "Craigslist (Chicago)", url: "https://chicago.craigslist.org/search/cta?purveyor=owner" },
-  { name: "Craigslist (NewYork)", url: "https://newyork.craigslist.org/search/cta?purveyor=owner" },
+  { name: "Craigslist (US)", url: "https://fayar.craigslist.org/search/bentonville-ar/cta?lat=36.2917&lon=-94.3029&purveyor=owner&search_distance=1000" },
+  { name: "Craigslist (H.US)", url: "https://slo.craigslist.org/search/harmony-ca/cta?lat=35.004&lon=-121.7106&purveyor=owner&search_distance=1000#search=2~gallery~0" },
   { name: "eBay (UK)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=3" },
   { name: "eBay (Aus)", url: "https://www.ebay.com/sch/i.html?_fsrp=1&_from=R40&For%2520Sale%2520By=Private%2520Seller&_nkw=cars+trucks&_sacat=6001&_dcat=6001&_sop=10&_oaa=1&_fcid=15" },
-   { name: "Karkis", url: "https://karkiosk.com/cars-for-sale" },
+    { name: "Best Car", url: "https://www.bestcarfinder.com/cars-for-sale/in-elk-grove-village-il-60007?RadiusMiles=10000&soldby=ownersonly&sortby=newest" },
+  { name: "Party Car", url: "https://www.privatepartycars.com/search.fx?search=1&amp;featured=&amp;make=&amp;model=&amp;price=&amp;year1=&amp;year2=&amp;sort=&amp;limit=1000&amp;spref=1" },
+
 ];
+
+const SITES_WITH_DATE = [
+  "eBay (US)",
+  "eBay (UK)",
+  "eBay (Aus)",
+  "Craigslist (US)",
+  "Craigslist (H.US)"
+];
+
 
 export default function Home() {
   const [selectedSite, setSelectedSite] = useState(SITES[0].name);
@@ -31,6 +42,8 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [filterHasContact, setFilterHasContact] = useState(false);
+  const showDateFields = SITES_WITH_DATE.includes(selectedSite);
+
 
   const perPage = 10;
 
@@ -144,33 +157,39 @@ export default function Home() {
           />
         </div>
 
-        <div className="sm:col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-500 mb-1">From Date & Time</label>
-          <DatePicker
-            selected={fromDateTime}
-            onChange={(date) => setFromDateTime(date)}
-            className="w-full border border-gray-300 p-2.5 rounded-lg"
-            placeholderText="Select start date & time"
-            showTimeSelect
-            timeFormat="HH:mm"
-            timeIntervals={15}
-            dateFormat="yyyy-MM-dd HH:mm"
-          />
-        </div>
+{showDateFields && (
+  <>
+    <div className="sm:col-span-1 md:col-span-2">
+      <label className="block text-sm font-medium text-gray-500 mb-1">From Date & Time</label>
+      <DatePicker
+        selected={fromDateTime}
+        onChange={(date) => setFromDateTime(date)}
+        className="w-full border border-gray-300 p-2.5 rounded-lg"
+        placeholderText="Select start date & time"
+        showTimeSelect
+        timeFormat="HH:mm"
+        timeIntervals={15}
+        dateFormat="yyyy-MM-dd HH:mm"
+      />
+    </div>
 
-        <div className="sm:col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-500 mb-1">To Date & Time</label>
-          <DatePicker
-            selected={toDateTime}
-            onChange={(date) => setToDateTime(date)}
-            className="w-full border border-gray-300 p-2.5 rounded-lg"
-            placeholderText="Select end date & time"
-            showTimeSelect
-            timeFormat="HH:mm"
-            timeIntervals={15}
-            dateFormat="yyyy-MM-dd HH:mm"
-          />
-        </div>
+    <div className="sm:col-span-1 md:col-span-2">
+      <label className="block text-sm font-medium text-gray-500 mb-1">To Date & Time</label>
+      <DatePicker
+        selected={toDateTime}
+        onChange={(date) => setToDateTime(date)}
+        className="w-full border border-gray-300 p-2.5 rounded-lg"
+        placeholderText="Select end date & time"
+        showTimeSelect
+        timeFormat="HH:mm"
+        timeIntervals={15}
+        dateFormat="yyyy-MM-dd HH:mm"
+      />
+    </div>
+  </>
+)}
+
+
 
         <div className="sm:col-span-2 md:col-span-4 flex flex-col sm:flex-row gap-2 justify-end mt-2">
           <button

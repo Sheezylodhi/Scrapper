@@ -6,6 +6,10 @@ import { scrapeEbayCars } from "@/lib/scraper";
 import { scrapeHemmingCars } from "@/lib/hemmingScraper";
 import { scrapeCraigslist } from "@/lib/scraperCraigslist";
 import { scrapeKarkisCars } from "@/lib/scraperKarkis";
+import { scrapeBestCarFinderConsole } from "@/lib/bestcarfinderscraper";
+import { scrapePrivatePartyModalFirst } from "@/lib/scraperprivatepartycar";
+
+import { scrapeKBB } from "@/lib/scraperkkb";
 
 
 export async function POST(req) {
@@ -25,9 +29,9 @@ export async function POST(req) {
       results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
     } else if (siteName === "Hemming") {
       results = await scrapeHemmingCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
-    } else if (siteName === "Craigslist (Chicago)") {
+    } else if (siteName === "Craigslist (US)") {
       results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
-    }else if (siteName === "Craigslist (NewYork)") {
+    }else if (siteName === "Craigslist (H.US)") {
       results = await scrapeCraigslist(searchUrl, keyword, fromDate, toDate);
     } else  if (siteName === "eBay (UK)") {
       results = await scrapeEbayCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
@@ -36,6 +40,15 @@ export async function POST(req) {
     } 
    else if (siteName === "Karkis") {
   results = await scrapeKarkisCars(searchUrl, 50, keyword, fromDate, toDate, siteName);
+}
+   else if (siteName === "Best Car") {
+  results = await scrapeBestCarFinderConsole(searchUrl, 25, keyword, fromDate, toDate);
+}
+  else if (siteName === "Party Car") {
+  results = await scrapePrivatePartyModalFirst(searchUrl, keyword, fromDate, toDate);
+}
+else if (siteName === "KBB") {
+  results = await scrapeKBB(searchUrl, keyword, fromDate, toDate);
 }
 
      else {

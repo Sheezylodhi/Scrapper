@@ -67,24 +67,29 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
   for (let pageNum = 1; pageNum <= maxPages && !stopScraping; pageNum++) {
     console.log(`🔹 Scraping page ${pageNum}`);
 
-    await page.waitForSelector("a[href*='details']", { timeout: 40000 }).catch(() => null);
     await autoScroll(page);
+    await page.waitForSelector("div.col-md-4.col-sm-6 a[href*='details']", { timeout: 40000 }).catch(() => null);
 
-    const cards = await page.$$eval("a[href*='details']", (nodes) =>
+    const cards = await page.$$eval("div.col-md-4.col-sm-6 a[href*='details']", (nodes) =>
       nodes.map((a) => {
-        const container = a.closest(".col-md-4, .col-sm-6");
-        const title = container?.querySelector("h2,h3,h4")?.innerText?.trim() || "";
-        const price = container?.querySelector("h5, .price, .kk-price-box, strong")?.innerText?.trim() || "";
-        const image = container?.querySelector("img")?.src || "";
-        const meta = container?.innerText || "";
-        const city = (meta.match(/\b[A-Z][a-z]+(?: [A-Z][a-z]+)*$/m) || [])[0] || "";
-        const location = meta.includes("Private Seller") ? "Private Seller" : "";
+        const box = a.closest("div.col-md-4.col-sm-6");
+        const title = box?.querySelector("h2,h3,h4")?.innerText?.trim() || "";
+        const price = box?.querySelector("h5, strong, .price")?.innerText?.trim() || "";
+        const image = box?.querySelector("img")?.src || "";
+        const detailsText = box?.innerText || "";
+        const city = (detailsText.match(/\b[A-Z][a-z]+(?: [A-Z][a-z]+)*$/m) || [])[0] || "";
+        const location = detailsText.includes("Private Seller") ? "Private Seller" : "";
         const postedDate = "";
         return { title, link: a.href, image, price, city, location, postedDate };
       })
     );
 
     console.log(`🧩 Found ${cards.length} listings on page ${pageNum}`);
+
+    if (!cards || cards.length === 0) {
+      console.log("🚫 No more listings — stopping.");
+      break;
+    }
 
     for (const c of cards) {
       if (!c.link || seen.has(c.link)) continue;
@@ -132,16 +137,20 @@ export async function scrapeKarkisCars(searchUrl, maxPages = 50, keyword, fromDa
       } catch (err) {
         console.log(`⚠️ Detail error for ${c.title}: ${err.message}`);
       }
+
       await randomDelay(400, 800);
     }
 
     if (stopScraping) break;
 
-    // ✅ Click "Next" for next page
-    const nextBtn = await page.$("a.page-link[aria-label='Next'], a[rel='next']");
+    // ✅ Click Next button for pagination
+    const nextBtn = await page.$("a.page-link[aria-label='Next'], a[rel='next'], a:contains('Next')");
     if (nextBtn) {
       console.log("➡️ Moving to next page...");
-      await Promise.all([nextBtn.click(), page.waitForNavigation({ waitUntil: "domcontentloaded" })]);
+      await Promise.all([
+        nextBtn.click(),
+        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 }),
+      ]);
       await autoScroll(page);
       await randomDelay(1200, 1800);
     } else {
